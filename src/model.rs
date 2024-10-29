@@ -1,3 +1,4 @@
+use clickhouse::Row;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize, Serialize, Copy, Clone, Debug, Default)]
@@ -92,7 +93,7 @@ pub struct HeroSelection {
     pub order: u8,
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[derive(Row, Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Match {
     pub players: Vec<Player>,
