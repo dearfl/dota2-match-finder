@@ -9,8 +9,24 @@ pub struct AbilityUpgrade {
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(deny_unknown_fields, default)]
-pub struct MatchPlayerDetail {
+#[serde(deny_unknown_fields)]
+pub struct Unit {
+    pub unitname: String,
+    pub item_0: u16,
+    pub item_1: u16,
+    pub item_2: u16,
+    pub item_3: u16,
+    pub item_4: u16,
+    pub item_5: u16,
+    pub backpack_0: u16,
+    pub backpack_1: u16,
+    pub backpack_2: u16,
+    pub item_neutral: u16,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+#[serde(deny_unknown_fields)]
+pub struct Player {
     pub account_id: u32,
     pub player_slot: u8,
     pub team_number: u8,
@@ -48,22 +64,25 @@ pub struct MatchPlayerDetail {
     pub scaled_hero_damage: u32,
     pub scaled_tower_damage: u32,
     pub scaled_hero_healing: u32,
+    #[serde(default)]
     pub ability_upgrades: Vec<AbilityUpgrade>,
+    #[serde(default)]
+    pub additional_units: Vec<Unit>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct HeroSelection {
-    pub is_pick: u8,
+    pub is_pick: bool,
     pub hero_id: u8,
     pub team: u8,
     pub order: u8,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
-#[serde(deny_unknown_fields, default)]
-pub struct MatchDetail {
-    pub players: Vec<MatchPlayerDetail>,
+#[serde(deny_unknown_fields)]
+pub struct Match {
+    pub players: Vec<Player>,
     pub radiant_win: bool,
     pub duration: u16,
     pub pre_game_duration: u16,
@@ -84,18 +103,19 @@ pub struct MatchDetail {
     pub engine: u8,
     pub radiant_score: u16,
     pub dire_score: u16,
+    #[serde(default)]
     pub picks_bans: Vec<HeroSelection>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
-pub struct GetMatchHistoryBySequenceNumWrapper {
+pub struct MatchHistory {
     pub status: u8,
-    pub matches: Vec<MatchDetail>,
+    pub matches: Vec<Match>,
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
-pub struct GetMatchHistoryBySequenceNumResult {
-    pub result: GetMatchHistoryBySequenceNumWrapper,
+pub struct MatchHistoryResponse {
+    pub result: MatchHistory,
 }
