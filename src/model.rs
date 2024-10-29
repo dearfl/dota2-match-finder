@@ -27,6 +27,7 @@ pub struct Unit {
 #[derive(Deserialize, Serialize, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Player {
+    #[serde(default)]
     pub account_id: u32,
     pub player_slot: u8,
     pub team_number: u8,
@@ -46,6 +47,7 @@ pub struct Player {
     pub kills: u8,
     pub deaths: u8,
     pub assists: u8,
+    #[serde(default)]
     pub leaver_status: u8,
     pub last_hits: u16,
     pub denies: u16,
@@ -53,16 +55,27 @@ pub struct Player {
     pub xp_per_min: u16,
     pub level: u8,
     pub net_worth: u32,
+    #[serde(default)]
     pub aghanims_scepter: u8,
+    #[serde(default)]
     pub aghanims_shard: u8,
+    #[serde(default)]
     pub moonshard: u8,
+    #[serde(default)]
     pub hero_damage: u32,
+    #[serde(default)]
     pub tower_damage: u32,
+    #[serde(default)]
     pub hero_healing: u32,
+    #[serde(default)]
     pub gold: u32,
+    #[serde(default)]
     pub gold_spent: u32,
+    #[serde(default)]
     pub scaled_hero_damage: u32,
+    #[serde(default)]
     pub scaled_tower_damage: u32,
+    #[serde(default)]
     pub scaled_hero_healing: u32,
     #[serde(default)]
     pub ability_upgrades: Vec<AbilityUpgrade>,
