@@ -91,9 +91,9 @@ async fn main() -> anyhow::Result<()> {
                 // maybe valve have changed the json response format
                 // this is when things really goes wrong, we need to fix it manually
                 log::error!("decode error: {}", err);
-                let dur = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
-                let filename = format!("{}-error.json", dur.as_secs());
+                let filename = format!("{}-error.json", index);
                 std::fs::write(filename, content)?;
+                // TODO: quit or continue?
                 return Err(err.into());
             }
             Err(ClientError::ConnectionError(err)) => {

@@ -1,6 +1,9 @@
 use clickhouse::Row;
 use serde::{Deserialize, Serialize};
 
+// TODO: do we want deny_unknown_fields?
+// we only want some fields?
+
 #[derive(Deserialize, Serialize, Copy, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AbilityUpgrade {
@@ -118,6 +121,26 @@ pub struct Match {
     pub radiant_score: u16,
     pub dire_score: u16,
     #[serde(default)]
+    pub radiant_team_id: u64,
+    #[serde(default)]
+    pub radiant_name: String,
+    #[serde(default)]
+    pub radiant_logo: u64,
+    #[serde(default)]
+    pub radiant_team_complete: u64,
+    #[serde(default)]
+    pub dire_team_id: u64,
+    #[serde(default)]
+    pub dire_name: String,
+    #[serde(default)]
+    pub dire_logo: u64,
+    #[serde(default)]
+    pub dire_team_complete: u64,
+    #[serde(default)]
+    pub radiant_captain: u64,
+    #[serde(default)]
+    pub dire_captain: u64,
+    #[serde(default)]
     pub picks_bans: Vec<HeroSelection>,
 }
 
@@ -132,4 +155,16 @@ pub struct MatchHistory {
 #[serde(deny_unknown_fields)]
 pub struct MatchHistoryResponse {
     pub result: MatchHistory,
+}
+
+mod tests {
+
+    #[test]
+    fn test_1730303804() {
+        use super::MatchHistoryResponse;
+        let content =
+            std::fs::read_to_string("./tests/1730303804-error.json").expect("Failed to read json");
+        serde_json::from_str::<MatchHistoryResponse>(&content)
+            .expect("Failed to parse json response");
+    }
 }
