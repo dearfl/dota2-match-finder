@@ -86,6 +86,11 @@ async fn main() -> anyhow::Result<()> {
                 interval = std::cmp::min(interval * 2, MAX_INTERVAL);
                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
+            Err(ClientError::OtherResponse(status)) => {
+                log::error!("other response: {}", status);
+                interval = std::cmp::min(interval * 5, MAX_INTERVAL);
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
             Err(ClientError::ProxyError(_)) | Err(ClientError::ConstructError(_)) => unreachable!(),
         }
 

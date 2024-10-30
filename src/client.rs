@@ -15,6 +15,8 @@ pub enum ClientError {
     DecodeError(serde_json::Error, String),
     #[error("Too Many Requests")]
     TooManyRequests,
+    #[error("Other Response: {0}")]
+    OtherResponse(StatusCode),
 }
 
 pub struct Client {
@@ -60,11 +62,7 @@ impl Client {
                     .map(|result: MatchHistoryResponse| result.result)
                     .map_err(|err| ClientError::DecodeError(err, content))
             }
-            _ => {
-                // we may want to handle some special cases
-                // so we intentionally leave this todo macro here
-                todo!()
-            }
+            other => Err(ClientError::OtherResponse(other)),
         }
     }
 }
