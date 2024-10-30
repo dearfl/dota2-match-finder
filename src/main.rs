@@ -71,8 +71,9 @@ async fn main() -> anyhow::Result<()> {
                 // maybe valve have changed the json response format
                 // this is when things really goes wrong, we need to fix it manually
                 log::error!("decode error: {}", err);
-                // TODO: use timestamp based filename
-                std::fs::write("error.json", content)?;
+                let dur = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+                let filename = format!("{}-error.json", dur.as_secs());
+                std::fs::write(filename, content)?;
                 return Err(err.into());
             }
             Err(ClientError::TooManyRequests) => {
