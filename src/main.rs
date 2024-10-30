@@ -76,16 +76,16 @@ async fn main() -> anyhow::Result<()> {
                 std::fs::write(filename, content)?;
                 return Err(err.into());
             }
+            Err(ClientError::ConnectionError(err)) => {
+                log::warn!("connection error: {}", err);
+                interval = std::cmp::min(interval * 2, MAX_INTERVAL);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            }
             Err(ClientError::TooManyRequests) => {
                 // we're requesting API too frequently, so slowing it down a little.
                 log::warn!("too many requests");
                 interval = std::cmp::min(interval * 5, MAX_INTERVAL);
                 tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-            }
-            Err(ClientError::ConnectionError(err)) => {
-                log::warn!("connection error: {}", err);
-                interval = std::cmp::min(interval * 2, MAX_INTERVAL);
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             }
             Err(ClientError::OtherResponse(status)) => {
                 log::error!("other response: {}", status);
