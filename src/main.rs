@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let clients = args
         .keys
-        .into_iter()
+        .iter()
         .map(|key| Client::new(key, args.proxy.as_deref()))
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -78,7 +78,7 @@ async fn main() -> anyhow::Result<()> {
         // traffic control?
         tokio::time::sleep(interval).await;
         log::debug!("request interval: {}ms", interval.as_millis());
-        match clt.get_matches(index, 100).await {
+        match clt.get_match_history_full(index, 100).await {
             Ok(matches) => {
                 log::debug!("success");
                 interval = std::cmp::max(interval * 9 / 10, min_interval);
