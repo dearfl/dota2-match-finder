@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::model::{MatchId, Side};
+use crate::model::{full::Match, MatchId, Side};
 
 pub struct Database {
     database: String,
@@ -49,5 +49,17 @@ impl Database {
             insert.end().await?;
         }
         Ok(())
+    }
+
+    pub async fn save_matches(
+        &self,
+        table: &str,
+        matches: &Vec<Match>,
+    ) -> Result<(), clickhouse::error::Error> {
+        let mut insert = self.client.insert(table)?;
+        for mat in matches {
+            insert.write(mat).await?;
+        }
+        insert.end().await
     }
 }
