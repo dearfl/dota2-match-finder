@@ -1,11 +1,13 @@
 mod client;
 mod model;
+mod rate;
 
 use std::{collections::HashMap, time::Duration};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use clap::Parser;
 use client::{Client, ClientError};
+use rate::RateControl;
 
 #[derive(Parser)]
 pub struct Args {
@@ -84,25 +86,20 @@ async fn main() -> anyhow::Result<()> {
 
     let mut index = args.start_idx;
 
-    let mut interval = Duration::from_millis(100);
-    let min_interval: Duration = Duration::from_millis(args.min_interval);
-    let max_interval: Duration = Duration::from_millis(args.max_interval);
+    let mut rate = RateControl::new(args.min_interval, args.max_interval);
 
     let _database = new_database_connection(&args);
     let mut _buffer = HashMap::<NaiveDate, HashMap<Side, HashMap<u8, Vec<u64>>>>::new();
 
     for clt in clients.iter().cycle() {
-        // traffic control?
-        tokio::time::sleep(interval).await;
-        log::debug!("request interval: {}ms", interval.as_millis());
+        rate.wait().await;
         match clt.get_match_history(index, 100).await {
             Ok(matches) => {
-                log::debug!("success");
-                interval = if matches.matches.len() >= 100 {
-                    std::cmp::max(interval * 9 / 10, min_interval)
+                if matches.matches.len() >= 100 {
+                    rate.speed_up();
                 } else {
-                    std::cmp::min(interval * 2, max_interval)
-                };
+                    rate.slow_down();
+                }
                 index = matches.matches.iter().fold(index, |init, mat| {
                     let date = DateTime::from_timestamp(mat.start_time as i64, 0)
                         .map_or(NaiveDate::default(), |arg0: DateTime<Utc>| {
@@ -133,18 +130,18 @@ async fn main() -> anyhow::Result<()> {
             }
             Err(ClientError::ConnectionError(err)) => {
                 log::warn!("connection error: {}", err);
-                interval = std::cmp::min(interval * 2, max_interval);
+                rate.slow_down();
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
             Err(ClientError::TooManyRequests) => {
                 // we're requesting API too frequently, so slowing it down a little.
                 log::warn!("too many requests");
-                interval = std::cmp::min(interval * 5, max_interval);
+                rate.slow_down();
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(ClientError::OtherResponse(status)) => {
                 log::error!("other response: {}", status);
-                interval = std::cmp::min(interval * 5, max_interval);
+                rate.slow_down();
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
             Err(ClientError::ProxyError(_)) | Err(ClientError::ConstructError(_)) => unreachable!(),
