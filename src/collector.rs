@@ -4,7 +4,7 @@ use crate::{
     args::Args,
     client::{Client, ClientError},
     database::Database,
-    model::{MatchId, Side},
+    model::{full::Match, MatchId, Side},
 };
 
 pub struct RateControl {
@@ -42,14 +42,16 @@ pub struct Collector {
     match_seq_num: u64,
     rate: RateControl,
     database: Database,
-    buffer: HashMap<(Side, u8), Vec<MatchId>>,
+    match_buffer: Vec<Match>,
+    index_buffer: HashMap<(Side, u8), Vec<MatchId>>,
 }
 
 impl Collector {
     pub fn new(args: &Args) -> anyhow::Result<Self> {
         let match_seq_num = args.start_idx;
         let rate = RateControl::new(args.min_interval, args.max_interval);
-        let buffer = HashMap::<(Side, u8), Vec<MatchId>>::new();
+        let index_buffer = HashMap::<(Side, u8), Vec<MatchId>>::with_capacity(256);
+        let match_buffer = Vec::with_capacity(100 * 100 + 1024);
         let database = Database::new(
             args.clickhouse_server.as_deref(),
             args.clickhouse_database.as_deref(),
@@ -61,7 +63,8 @@ impl Collector {
             match_seq_num,
             rate,
             database,
-            buffer,
+            index_buffer,
+            match_buffer,
         })
     }
 
@@ -76,13 +79,14 @@ impl Collector {
                         .fold(self.match_seq_num, |init, mat| {
                             mat.players.iter().for_each(|player| {
                                 let side: Side = player.player_slot.into();
-                                self.buffer
+                                self.index_buffer
                                     .entry((side, player.hero_id))
                                     .or_default()
                                     .push(mat.match_id.into());
                             });
                             std::cmp::max(init, mat.match_seq_num + 1)
                         });
+                self.match_buffer.extend(matches.matches);
                 self.rate.speed_up();
             }
             Err(ClientError::DecodeError(err, content)) => {
@@ -117,8 +121,12 @@ impl Collector {
 
     pub async fn save(&mut self) -> anyhow::Result<()> {
         log::info!("write database!");
-        self.database.save(&self.buffer).await?;
-        self.buffer.clear();
+        self.database.save(&self.index_buffer).await?;
+        self.index_buffer.clear();
+        self.database
+            .save_matches("matches", &self.match_buffer)
+            .await?;
+        self.match_buffer.clear();
         Ok(())
     }
 
