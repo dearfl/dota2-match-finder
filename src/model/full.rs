@@ -1,9 +1,6 @@
 use clickhouse::Row;
 use serde::{Deserialize, Serialize};
 
-// TODO: do we want deny_unknown_fields?
-// we only want some fields?
-
 #[derive(Deserialize, Serialize, Copy, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AbilityUpgrade {
