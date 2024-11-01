@@ -80,6 +80,7 @@ impl Collector {
                         .iter()
                         .fold(self.match_seq_num, |init, mat| {
                             mat.players.iter().for_each(|player| {
+                                // TODO: filter out hero_id == 0
                                 let side: Side = player.player_slot.into();
                                 self.index_buffer
                                     .entry((side, player.hero_id))
@@ -88,6 +89,10 @@ impl Collector {
                             });
                             std::cmp::max(init, mat.match_seq_num + 1)
                         });
+                if matches.matches.len() < 100 {
+                    self.rate.slow_down();
+                }
+                self.rate.speed_up();
                 log::debug!(
                     "retrived {} matches from range [{}, {}).",
                     matches.matches.len(),
@@ -95,7 +100,6 @@ impl Collector {
                     self.match_seq_num
                 );
                 self.match_buffer.extend(matches.matches);
-                self.rate.speed_up();
             }
             Err(ClientError::DecodeError(err, content)) => {
                 // maybe valve have changed the json response format
