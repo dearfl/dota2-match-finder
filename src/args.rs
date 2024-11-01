@@ -14,9 +14,9 @@ pub struct Args {
     pub clickhouse_user: Option<String>,
     #[arg(long)]
     pub clickhouse_password: Option<String>,
-    #[arg(long, default_value_t = 32)]
+    #[arg(long, default_value_t = 4000)]
     pub min_interval: u64,
-    #[arg(long, default_value_t = 1000)]
+    #[arg(long, default_value_t = 30000)]
     pub max_interval: u64,
     #[arg(long, default_value_t = 10000)]
     pub insert_batch_size: usize,
