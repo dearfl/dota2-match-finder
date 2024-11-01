@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use reqwest::{Proxy, StatusCode};
 use thiserror::Error;
 
@@ -33,7 +35,7 @@ impl Client {
         "https://api.steampowered.com/IDOTA2Match_570/GetMatchHistory/v1";
 
     pub fn new(key: &str, proxy: Option<&str>) -> Result<Self, ClientError> {
-        let builder = reqwest::Client::builder();
+        let builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(10));
         let builder = match proxy {
             Some(proxy) => {
                 let proxy =
