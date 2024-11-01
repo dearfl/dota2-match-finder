@@ -15,7 +15,7 @@ pub struct RateControl {
 
 impl RateControl {
     pub fn new(min: u64, max: u64) -> Self {
-        let interval = Duration::from_millis(100);
+        let interval = Duration::from_millis(5000);
         let min_interval = Duration::from_millis(min);
         let max_interval = Duration::from_millis(max);
         Self {
@@ -26,15 +26,16 @@ impl RateControl {
     }
 
     pub async fn wait(&self) {
+        log::debug!("rate control: waiting {}ms!", self.interval.as_millis());
         tokio::time::sleep(self.interval).await;
     }
 
     pub fn speed_up(&mut self) {
-        self.interval = std::cmp::min(self.interval * 2, self.max_interval);
+        self.interval = std::cmp::max(self.interval * 9 / 10, self.min_interval);
     }
 
     pub fn slow_down(&mut self) {
-        self.interval = std::cmp::max(self.interval * 9 / 10, self.min_interval);
+        self.interval = std::cmp::min(self.interval * 2, self.max_interval);
     }
 }
 
@@ -72,6 +73,7 @@ impl Collector {
         // get_match_history is not reliable so we switch back to get_match_history_by_seq_num
         match client.get_match_history_full(self.match_seq_num, 100).await {
             Ok(matches) => {
+                let left = self.match_seq_num;
                 self.match_seq_num =
                     matches
                         .matches
@@ -86,6 +88,12 @@ impl Collector {
                             });
                             std::cmp::max(init, mat.match_seq_num + 1)
                         });
+                log::debug!(
+                    "retrived {} matches from range [{}, {}).",
+                    matches.matches.len(),
+                    left,
+                    self.match_seq_num
+                );
                 self.match_buffer.extend(matches.matches);
                 self.rate.speed_up();
             }
@@ -120,7 +128,7 @@ impl Collector {
     }
 
     pub async fn save(&mut self) -> anyhow::Result<()> {
-        log::info!("write database!");
+        log::info!("saving {} matches to database!", self.match_buffer.len());
         self.database.save(&self.index_buffer).await?;
         self.index_buffer.clear();
         self.database
@@ -131,7 +139,6 @@ impl Collector {
     }
 
     pub async fn rate_control(&self) {
-        log::debug!("rate control!");
         self.rate.wait().await;
     }
 }
