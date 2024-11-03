@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS dota2.matches (
     engine UInt8,
     radiant_score UInt16,
     dire_score UInt16,
+    tournament_id UInt64,
+    tournament_round UInt64,
     radiant_team_id UInt64,
     radiant_name LowCardinality(String),
     radiant_logo UInt64,
