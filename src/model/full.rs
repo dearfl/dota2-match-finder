@@ -118,6 +118,10 @@ pub struct Match {
     pub radiant_score: u16,
     pub dire_score: u16,
     #[serde(default)]
+    pub tournament_id: u64,
+    #[serde(default)]
+    pub tournament_round: u64,
+    #[serde(default)]
     pub radiant_team_id: u64,
     #[serde(default)]
     pub radiant_name: String,
@@ -159,9 +163,12 @@ mod tests {
     #[test]
     fn test_1730303804() {
         use super::MatchHistoryResponse;
-        let content =
-            std::fs::read_to_string("./tests/1730303804-error.json").expect("Failed to read json");
-        serde_json::from_str::<MatchHistoryResponse>(&content)
-            .expect("Failed to parse json response");
+        let parse = |file: &str| {
+            let content = std::fs::read_to_string(file).expect("Failed to read file");
+            serde_json::from_str::<MatchHistoryResponse>(&content)
+                .expect("Failed to parse json response")
+        };
+        parse("./tests/1730303804-error.json");
+        parse("./tests/6742154809-error.json");
     }
 }
