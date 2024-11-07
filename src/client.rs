@@ -41,7 +41,9 @@ impl Client {
         "https://api.steampowered.com/IDOTA2Match_570/GetMatchHistory/v1";
 
     pub fn new(key: &str, proxy: Option<&str>) -> Result<Self, ConstructionError> {
-        let builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(10));
+        let builder = reqwest::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .connect_timeout(Duration::from_secs(60));
         let builder = match proxy {
             Some(proxy) => {
                 let proxy = Proxy::all(proxy)
