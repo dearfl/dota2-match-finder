@@ -6,10 +6,12 @@ use crate::{
     args::Args,
     client::{Client, RequestError},
     database::Database,
-    dota2::{MatchMask, Side},
+    dota2::{full, MatchMask, Side},
 };
 
 pub struct RateControl {
+    // maybe we could do pwm control?
+    // this is way too simple
     interval: Duration,
     min_interval: Duration,
     max_interval: Duration,
@@ -73,59 +75,60 @@ impl Collector {
         })
     }
 
+    fn collect(&mut self, matches: &full::MatchHistory) -> u64 {
+        // collect a single batch
+        // do we want to do anything else?
+        matches
+            .matches
+            .iter()
+            .fold(self.match_seq_num, |init, mat| {
+                // update indices
+                let mask = mat.into();
+                mat.players
+                    .iter()
+                    .filter_map(|p| match p.hero_id {
+                        0 => None, // 0 means unknown hero
+                        h => Some((p.player_slot.into(), h)),
+                    })
+                    .for_each(|key| self.indices.entry(key).or_default().push(mask));
+                // calculate the new match_seq_num
+                std::cmp::max(init, mat.match_seq_num + 1)
+            })
+    }
+
     pub async fn request(&mut self, client: &Client) -> anyhow::Result<()> {
         // get_match_history is not reliable so we switch back to get_match_history_by_seq_num
         match client.get_match_history_full(self.match_seq_num, 100).await {
             Ok(matches) => {
-                let left = self.match_seq_num;
-                self.match_seq_num =
-                    matches
-                        .matches
-                        .iter()
-                        .fold(self.match_seq_num, |init, mat| {
-                            let mask = mat.into();
-                            mat.players
-                                .iter()
-                                .filter_map(|p| match p.hero_id {
-                                    0 => None, // 0 means unknown hero
-                                    h => Some((p.player_slot.into(), h)),
-                                })
-                                .for_each(|key| self.indices.entry(key).or_default().push(mask));
-                            std::cmp::max(init, mat.match_seq_num + 1)
-                        });
+                // match_seq_num range of current batch: [left, right)
+                let (left, right) = (self.match_seq_num, self.collect(&matches));
+                let count = matches.matches.len();
+                log::debug!("retrived {} matches from [{}, {}).", count, left, right);
+
+                // update match_seq_num
+                self.match_seq_num = right;
+
+                self.rate.speed_up();
                 if matches.matches.len() < 100 {
+                    // this means we're reaching the newest matches, so slowing down a bit
                     self.rate.slow_down();
                 }
-                self.rate.speed_up();
-                log::debug!(
-                    "retrived {} matches from range [{}, {}).",
-                    matches.matches.len(),
-                    left,
-                    self.match_seq_num
-                );
             }
             Err(RequestError::DecodeError(err, content)) => {
                 // maybe valve have changed the json response format
                 // this is when things really goes wrong, we need to fix it manually
-                log::error!("decode error: {}", err);
+                log::error!("DecodeError: {}", err);
+                log::info!("Saving response to {}-error.json", self.match_seq_num);
                 let filename = format!("{}-error.json", self.match_seq_num);
                 std::fs::write(filename, content)?;
                 // we have to quit or else we'll end in a dead loop
+                // we could in theory accept unknown fields so we don't have to quit here
+                // but we don't want to
                 return Err(err.into());
             }
-            Err(RequestError::ConnectionError(err)) => {
-                log::warn!("connection error: {}", err);
-                self.rate.slow_down();
-                tokio::time::sleep(Duration::from_secs(1)).await;
-            }
-            Err(RequestError::TooManyRequests) => {
-                // we're requesting API too frequently, so slowing it down a little.
-                log::warn!("too many requests");
-                self.rate.slow_down();
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-            Err(RequestError::OtherResponse(status)) => {
-                log::error!("other response: {}", status);
+            Err(error) => {
+                // similar connection errors
+                log::warn!("RequestError: {}", error);
                 self.rate.slow_down();
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
@@ -134,9 +137,11 @@ impl Collector {
     }
 
     pub async fn save(&mut self) -> anyhow::Result<()> {
+        // saving the full result uses way too much storage space which we can't afford!
         log::debug!("saving indices to database!");
         for (key, masks) in self.indices.iter_mut() {
             self.database.save_indexed_masks(*key, masks).await?;
+            // clear masks instead of indices so less alloction happens
             masks.clear();
         }
         Ok(())

@@ -5,6 +5,8 @@ use thiserror::Error;
 
 use crate::dota2::{full, partial};
 
+// we use separate error types for construction and request
+
 #[derive(Error, Debug)]
 pub enum ConstructionError {
     #[error("ProxyError: {0} from scheme: {1}.")]
