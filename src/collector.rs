@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, num::NonZeroU8, time::Duration};
 
 use tokio::time::Instant;
 
@@ -6,7 +6,7 @@ use crate::{
     args::Args,
     client::{Client, RequestError},
     database::Database,
-    dota2::{full, MatchMask, Side},
+    dota2::{full, MatchMask},
 };
 
 pub struct RateControl {
@@ -51,7 +51,7 @@ pub struct Collector {
     match_seq_num: u64,
     rate: RateControl,
     database: Database,
-    indices: HashMap<(Side, u8), Vec<MatchMask>>,
+    indices: HashMap<NonZeroU8, Vec<MatchMask>>,
 }
 
 impl Collector {
@@ -86,10 +86,7 @@ impl Collector {
                 let mask = mat.into();
                 mat.players
                     .iter()
-                    .filter_map(|p| match p.hero_id {
-                        0 => None, // 0 means unknown hero
-                        h => Some((p.player_slot.into(), h)),
-                    })
+                    .filter_map(|p| NonZeroU8::new(p.hero_id))
                     .for_each(|key| self.indices.entry(key).or_default().push(mask));
                 // calculate the new match_seq_num
                 std::cmp::max(init, mat.match_seq_num + 1)
@@ -140,7 +137,7 @@ impl Collector {
         // saving the full result uses way too much storage space which we can't afford!
         log::debug!("saving indices to database!");
         for (key, masks) in self.indices.iter_mut() {
-            self.database.save_indexed_masks(*key, masks).await?;
+            self.database.save_indexed_masks(key.get(), masks).await?;
             // clear masks instead of indices so less alloction happens
             masks.clear();
         }
