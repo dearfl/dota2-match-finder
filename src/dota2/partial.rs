@@ -1,3 +1,6 @@
+// this is the response definition of get_match_history
+// which is currently unused
+
 use clickhouse::Row;
 use serde::{Deserialize, Serialize};
 
