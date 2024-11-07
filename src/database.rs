@@ -1,6 +1,6 @@
 use clickhouse::error::Error;
 
-use crate::dota2::{MatchMask, Side};
+use crate::dota2::MatchMask;
 
 pub struct Database {
     database: String,
@@ -37,12 +37,8 @@ impl Database {
         Ok(Self { database, client })
     }
 
-    pub async fn save_indexed_masks(
-        &self,
-        (side, hero): (Side, u8),
-        masks: &[MatchMask],
-    ) -> Result<(), Error> {
-        let table = format!("index_mask_{}_{}", side, hero);
+    pub async fn save_indexed_masks(&self, hero: u8, masks: &[MatchMask]) -> Result<(), Error> {
+        let table = format!("index_mask_{}", hero);
         let query = format!(
             "CREATE TABLE IF NOT EXISTS {}.{} (
                     match_id UInt64,
