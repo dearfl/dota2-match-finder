@@ -18,7 +18,7 @@ pub struct Args {
     pub min_interval: u64,
     #[arg(long, default_value_t = 30000)]
     pub max_interval: u64,
-    #[arg(long, default_value_t = 10000)]
+    #[arg(long, default_value_t = 100)]
     pub insert_batch_size: usize,
     pub keys: Vec<String>,
 }

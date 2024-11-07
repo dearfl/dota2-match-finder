@@ -3,14 +3,18 @@ use std::time::Duration;
 use reqwest::{Proxy, StatusCode};
 use thiserror::Error;
 
-use crate::model::{full, partial};
+use crate::dota2::{full, partial};
 
 #[derive(Error, Debug)]
-pub enum ClientError {
-    #[error("Failed to create proxy from provided proxy scheme: {0}.")]
-    ProxyError(String),
-    #[error("Failed to create reqwest client: {0}.")]
-    ConstructError(reqwest::Error),
+pub enum ConstructionError {
+    #[error("ProxyError: {0} from scheme: {1}.")]
+    ProxyError(reqwest::Error, String),
+    #[error("BuildError: {0}.")]
+    BuildError(#[from] reqwest::Error),
+}
+
+#[derive(Error, Debug)]
+pub enum RequestError {
     #[error("Failed to retrive result from web API: {0}")]
     ConnectionError(#[from] reqwest::Error),
     #[error("Failed to decode web API response: {0}")]
@@ -18,7 +22,7 @@ pub enum ClientError {
     #[error("Too Many Requests")]
     TooManyRequests,
     #[error("Other Response: {0}")]
-    OtherResponse(StatusCode),
+    OtherResponse(reqwest::StatusCode),
 }
 
 pub struct Client {
@@ -34,17 +38,17 @@ impl Client {
     const URL_GET_MATCH_HISTORY: &str =
         "https://api.steampowered.com/IDOTA2Match_570/GetMatchHistory/v1";
 
-    pub fn new(key: &str, proxy: Option<&str>) -> Result<Self, ClientError> {
+    pub fn new(key: &str, proxy: Option<&str>) -> Result<Self, ConstructionError> {
         let builder = reqwest::Client::builder().connect_timeout(Duration::from_secs(10));
         let builder = match proxy {
             Some(proxy) => {
-                let proxy =
-                    Proxy::all(proxy).map_err(|_| ClientError::ProxyError(proxy.to_string()))?;
+                let proxy = Proxy::all(proxy)
+                    .map_err(|err| ConstructionError::ProxyError(err, proxy.to_string()))?;
                 builder.proxy(proxy)
             }
             None => builder,
         };
-        let client = builder.build().map_err(ClientError::ConstructError)?;
+        let client = builder.build()?;
         let key = key.to_string();
         Ok(Self { client, key })
     }
@@ -53,7 +57,7 @@ impl Client {
         &self,
         start_id: u64,
         count: u8,
-    ) -> Result<partial::MatchHistory, ClientError> {
+    ) -> Result<partial::MatchHistory, RequestError> {
         let req = self
             .client
             .get(Self::URL_GET_MATCH_HISTORY)
@@ -67,10 +71,10 @@ impl Client {
                 let content = resp.text().await?;
                 serde_json::from_str(&content)
                     .map(|result: partial::MatchHistoryResponse| result.result)
-                    .map_err(|err| ClientError::DecodeError(err, content))
+                    .map_err(|err| RequestError::DecodeError(err, content))
             }
-            StatusCode::TOO_MANY_REQUESTS => Err(ClientError::TooManyRequests),
-            other => Err(ClientError::OtherResponse(other)),
+            StatusCode::TOO_MANY_REQUESTS => Err(RequestError::TooManyRequests),
+            other => Err(RequestError::OtherResponse(other)),
         }
     }
 
@@ -78,7 +82,7 @@ impl Client {
         &self,
         start_id: u64,
         count: u8,
-    ) -> Result<full::MatchHistory, ClientError> {
+    ) -> Result<full::MatchHistory, RequestError> {
         let req = self
             .client
             .get(Self::URL_GET_MATCH_HISTORY_BY_SEQUENCE_NUM)
@@ -91,10 +95,10 @@ impl Client {
                 let content = resp.text().await?;
                 serde_json::from_str(&content)
                     .map(|result: full::MatchHistoryResponse| result.result)
-                    .map_err(|err| ClientError::DecodeError(err, content))
+                    .map_err(|err| RequestError::DecodeError(err, content))
             }
-            StatusCode::TOO_MANY_REQUESTS => Err(ClientError::TooManyRequests),
-            other => Err(ClientError::OtherResponse(other)),
+            StatusCode::TOO_MANY_REQUESTS => Err(RequestError::TooManyRequests),
+            other => Err(RequestError::OtherResponse(other)),
         }
     }
 }

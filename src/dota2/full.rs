@@ -1,6 +1,9 @@
 use clickhouse::Row;
 use serde::{Deserialize, Serialize};
 
+// This is the full definition of valve dota2 web api(get_match_history_by_seq_num) json response
+// we use deny unknown fields here in case the definition changes
+
 #[derive(Deserialize, Serialize, Copy, Clone, Debug, Default)]
 #[serde(deny_unknown_fields)]
 pub struct AbilityUpgrade {
