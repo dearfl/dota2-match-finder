@@ -1,5 +1,6 @@
 use std::{collections::HashMap, num::NonZeroU8, time::Duration};
 
+use itertools::Itertools;
 use tokio::time::Instant;
 
 use crate::{
@@ -52,10 +53,13 @@ pub struct Collector {
     rate: RateControl,
     database: Database,
     indices: HashMap<NonZeroU8, Vec<MatchMask>>,
+    keys: Vec<String>,
+    batch: usize,
+    proxy: Option<String>,
 }
 
 impl Collector {
-    pub async fn new(args: &Args) -> anyhow::Result<Self> {
+    pub async fn new(args: Args) -> anyhow::Result<Self> {
         let match_seq_num = args.start_idx;
         let rate = RateControl::new(args.min_interval, args.max_interval);
         let indices = HashMap::with_capacity(256 * 2);
@@ -66,12 +70,18 @@ impl Collector {
             args.clickhouse_password.as_deref(),
         )
         .await?;
+        let keys = args.keys;
+        let proxy = args.proxy;
+        let batch = args.insert_batch_size;
 
         Ok(Self {
             match_seq_num,
             rate,
             database,
             indices,
+            keys,
+            proxy,
+            batch,
         })
     }
 
@@ -144,7 +154,29 @@ impl Collector {
         Ok(())
     }
 
-    pub async fn rate_control(&mut self) {
-        self.rate.wait().await;
+    pub async fn run(&mut self) -> anyhow::Result<()> {
+        // construct clients here because we don't want to do
+        // self-referential stuff
+        let clients = self
+            .keys
+            .iter()
+            .map(|key| Client::new(key, self.proxy.as_deref()))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for clts in clients.iter().cycle().chunks(self.batch).into_iter() {
+            for clt in clts {
+                self.rate.wait().await;
+                if let Err(err) = self.request(clt).await {
+                    // request will only fail when decode error happened
+                    // in case this happens, we still want to save requested matches
+                    self.save().await?;
+                    return Err(err);
+                }
+            }
+            // save to clickhouse every <batch> requests
+            self.save().await?;
+        }
+
+        Ok(())
     }
 }
