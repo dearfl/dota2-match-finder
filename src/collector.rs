@@ -21,9 +21,9 @@ pub struct RateControl {
 
 impl RateControl {
     pub fn new(min: u64, max: u64) -> Self {
-        let interval = Duration::from_millis(5000);
         let min_interval = Duration::from_millis(min);
         let max_interval = Duration::from_millis(max);
+        let interval = min_interval * 2;
         let last_timestamp = Instant::now();
         Self {
             interval,
