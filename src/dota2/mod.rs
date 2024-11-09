@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, ops::Range};
 
 use clickhouse::Row;
 use primitive_types::U256;
@@ -92,5 +92,18 @@ pub struct MatchId {
 impl From<u64> for MatchId {
     fn from(value: u64) -> Self {
         Self { match_id: value }
+    }
+}
+
+#[derive(Row, Serialize, Deserialize, Clone, Copy)]
+pub struct MatchRange {
+    pub start: u64,
+    pub end: u64,
+}
+
+impl From<Range<u64>> for MatchRange {
+    fn from(value: Range<u64>) -> Self {
+        let Range { start, end } = value;
+        Self { start, end }
     }
 }
