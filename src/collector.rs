@@ -44,7 +44,7 @@ impl RateControl {
     }
 
     pub fn slow_down(&mut self) {
-        self.interval = std::cmp::min(self.interval * 2, self.max_interval);
+        self.interval = std::cmp::min(self.interval * 4 / 3, self.max_interval);
     }
 }
 
@@ -148,7 +148,7 @@ impl Collector {
         log::debug!("saving indices to database!");
         for (key, masks) in self.indices.iter_mut() {
             self.database.save_indexed_masks(key.get(), masks).await?;
-            // clear masks instead of indices so less alloction happens
+            // clear masks instead of indices so less dealloc and realloc happens
             masks.clear();
         }
         Ok(())
