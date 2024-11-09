@@ -88,17 +88,22 @@ impl<'db> Collector<'db> {
     }
 
     pub async fn get_a_recent_match_seq_num(&self) -> anyhow::Result<u64> {
-        let history = self
-            .clients
-            .first()
-            .ok_or(anyhow!("No client found!"))?
-            .get_match_history(0, 100)
-            .await?;
-        let seq_num = history
-            .matches
-            .iter()
-            .fold(0, |init, mat| std::cmp::max(init, mat.match_seq_num));
-        Ok(seq_num)
+        for _ in 0..5 {
+            let history = self
+                .clients
+                .first()
+                .ok_or(anyhow!("No client found!"))?
+                .get_match_history(0, 100)
+                .await;
+            if let Ok(history) = history {
+                let seq_num = history
+                    .matches
+                    .iter()
+                    .fold(0, |init, mat| std::cmp::max(init, mat.match_seq_num));
+                return Ok(seq_num);
+            }
+        }
+        Err(anyhow!("Failed to get recent match seq num after 5 tries."))
     }
 
     pub async fn collect(
