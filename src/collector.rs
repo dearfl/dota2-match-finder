@@ -1,11 +1,12 @@
 use std::{num::NonZeroU8, ops::Range, time::Duration};
 
+use anyhow::anyhow;
 use itertools::Itertools;
 
 use crate::{
     client::{Client, RequestError},
     database::Database,
-    dota2::{full::MatchHistory, MatchMask},
+    dota2::{full::MatchHistory, MatchMask, MatchRange},
     rate::RateControl,
 };
 
@@ -60,7 +61,7 @@ impl<'db> Collector<'db> {
                     .iter()
                     .fold(left, |init, mat| std::cmp::max(init, mat.match_seq_num + 1));
                 let count = matches.len();
-                log::info!("retrived {} matches from [{}, {}).", count, left, right);
+                log::debug!("retrived {} matches from [{}, {}).", count, left, right);
                 // return the new range
                 Ok(right..range.end)
             }
@@ -86,15 +87,36 @@ impl<'db> Collector<'db> {
         }
     }
 
+    pub async fn get_a_recent_match_seq_num(&self) -> anyhow::Result<u64> {
+        let history = self
+            .clients
+            .first()
+            .ok_or(anyhow!("No client found!"))?
+            .get_match_history(0, 100)
+            .await?;
+        let seq_num = history
+            .matches
+            .iter()
+            .fold(0, |init, mat| std::cmp::max(init, mat.match_seq_num));
+        Ok(seq_num)
+    }
+
     pub async fn collect(
         &self,
         mut range: Range<u64>,
         batch: usize,
         mut rate: RateControl,
     ) -> anyhow::Result<()> {
+        log::info!("collecting matches in [{}, {})", range.start, range.end);
+
         // use Vec<Vec> instead of HashMap<NonZeroU8, Vec> for better performance
+        // very easy to make mistakes here
         let mut indexed_masks: Vec<Vec<MatchMask>> =
             (0..256).map(|_| Vec::with_capacity(batch * 100)).collect();
+        let mut collected = MatchRange {
+            start: range.start,
+            end: range.start,
+        };
 
         for clients in self.clients.iter().cycle().chunks(batch).into_iter() {
             for client in clients {
@@ -103,18 +125,24 @@ impl<'db> Collector<'db> {
                     Err(err) => {
                         // request will only fail when decode error happened
                         // in case this happens, we still want to save requested matches
-                        self.save(&indexed_masks).await?;
+                        self.save(&indexed_masks, collected).await?;
                         return Err(err);
                     }
                     Ok(new_range) if new_range.is_empty() => {
                         // we have finished collect this range
+                        collected.end = std::cmp::max(collected.end, new_range.start);
+                        self.save(&indexed_masks, collected).await?;
                         return Ok(());
                     }
-                    Ok(new_range) => range = new_range,
+                    Ok(new_range) => {
+                        collected.end = std::cmp::max(collected.end, new_range.start);
+                        range = new_range;
+                    }
                 }
             }
             // save to clickhouse every <batch> requests
-            self.save(&indexed_masks).await?;
+            self.save(&indexed_masks, collected).await?;
+            collected.start = collected.end;
             // clear saved inner vec so we don't have to dealloc and realloc
             indexed_masks.iter_mut().for_each(|masks| masks.clear());
         }
@@ -122,15 +150,20 @@ impl<'db> Collector<'db> {
         Ok(())
     }
 
-    pub async fn save(&self, indexed_masks: &[Vec<MatchMask>]) -> anyhow::Result<()> {
+    pub async fn save(
+        &self,
+        indexed_masks: &[Vec<MatchMask>],
+        range: MatchRange,
+    ) -> anyhow::Result<()> {
         // saving the full result uses way too much storage space which we can't afford!
-        log::info!("saving indices to database!");
+        log::info!("saving masks to database!");
         for (hero, masks) in indexed_masks.iter().enumerate() {
             if masks.is_empty() {
                 continue;
             }
             self.database.save_indexed_masks(hero as u8, masks).await?;
         }
+        self.database.save_range(range).await?;
         Ok(())
     }
 }
