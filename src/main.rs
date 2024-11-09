@@ -43,14 +43,16 @@ async fn main() -> anyhow::Result<()> {
     )
     .await?;
 
-    let rate = RateControl::new(args.min_interval_onward, args.max_interval_onward);
-    let collector = Collector::new(&database, &args.keys, args.proxy.as_deref())?;
-    let start = collector.get_a_recent_match_seq_num().await?;
+    let col_onward = Collector::new(&database, &args.keys[0..1], args.proxy.as_deref())?;
+    let start = col_onward.get_a_recent_match_seq_num().await?;
 
+    let rate_onward = RateControl::new(args.min_interval_onward, args.max_interval_onward);
     let task_collect_onward_matches =
-        collector.collect(start..u64::MAX, args.batch_size_onward, rate);
+        col_onward.collect(start..u64::MAX, args.batch_size_onward, rate_onward);
+
+    let col_past = Collector::new(&database, &args.keys[1..], args.proxy.as_deref())?;
     let task_collect_past_matches = collect_past_matches(
-        &collector,
+        &col_past,
         start,
         args.batch_size_past,
         args.min_interval_past,
