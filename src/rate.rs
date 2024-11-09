@@ -26,7 +26,7 @@ impl RateControl {
     }
 
     pub async fn wait(&mut self) {
-        log::debug!("rate control: waiting {}ms!", self.interval.as_millis());
+        log::trace!("rate control: waiting {}ms!", self.interval.as_millis());
         tokio::time::sleep_until(self.last_timestamp + self.interval).await;
         self.last_timestamp = Instant::now();
     }
