@@ -5,7 +5,7 @@ use itertools::Itertools;
 use crate::{
     client::{Client, RequestError},
     database::Database,
-    dota2::{full::Match, MatchMask},
+    dota2::{full::MatchHistory, MatchMask},
     rate::RateControl,
 };
 
@@ -27,51 +27,49 @@ impl<'db> Collector<'db> {
         Ok(Self { clients, database })
     }
 
-    fn gen_mask(matches: &[Match], index: u64, indexed_masks: &mut [Vec<MatchMask>]) -> u64 {
-        // collect a single batch
-        // do we want to do anything else?
-        matches.iter().fold(index, |init, mat| {
-            // update masks
-            let mask = mat.into();
-            mat.players
-                .iter()
-                .filter_map(|p| NonZeroU8::new(p.hero_id))
-                .for_each(|idx| indexed_masks[idx.get() as usize].push(mask));
-            // calculate the new match_seq_num
-            std::cmp::max(init, mat.match_seq_num + 1)
-        })
-    }
-
     pub async fn request(
         client: &Client,
-        index: u64,
+        range: Range<u64>,
         rate: &mut RateControl,
         indexed_masks: &mut [Vec<MatchMask>],
-    ) -> anyhow::Result<u64> {
+    ) -> anyhow::Result<Range<u64>> {
         // get_match_history is very limited so we switch back to get_match_history_by_seq_num
-        match client.get_match_history_full(index, 100).await {
-            Ok(matches) => {
-                // match_seq_num range of current batch: [left, right)
-                let (left, right) = (
-                    index,
-                    Self::gen_mask(&matches.matches, index, indexed_masks),
-                );
-                let count = matches.matches.len();
-                log::info!("retrived {} matches from [{}, {}).", count, left, right);
+        let left = range.start;
+        match client.get_match_history_full(left, 100).await {
+            Ok(MatchHistory { status: _, matches }) => {
+                matches
+                    .iter()
+                    .filter(|&mat| range.contains(&mat.match_seq_num)) // filter out OutOfRange matches
+                    .for_each(|mat| {
+                        let mask = mat.into();
+                        mat.players
+                            .iter()
+                            .filter_map(|p| NonZeroU8::new(p.hero_id)) // filter out unknown hero
+                            .for_each(|idx| indexed_masks[idx.get() as usize].push(mask));
+                    });
 
+                // rate control stuff
                 rate.accelerate();
-                if matches.matches.len() < 100 {
+                if matches.len() < 100 {
                     // this means we're reaching the newest matches, so slowing down a bit
                     rate.decelerate();
                 }
-                Ok(right)
+
+                // match_seq_num range of current batch: [left, right)
+                let right = matches
+                    .iter()
+                    .fold(left, |init, mat| std::cmp::max(init, mat.match_seq_num + 1));
+                let count = matches.len();
+                log::info!("retrived {} matches from [{}, {}).", count, left, right);
+                // return the new range
+                Ok(right..range.end)
             }
             Err(RequestError::DecodeError(err, content)) => {
                 // maybe valve have changed the json response format
                 // this is when things really goes wrong, we need to fix it manually
                 log::error!("DecodeError: {}", err);
-                log::info!("Saving response to {}-error.json", index);
-                let filename = format!("{}-error.json", index);
+                log::info!("Saving response to {}-error.json", left);
+                let filename = format!("{}-error.json", left);
                 std::fs::write(filename, content)?;
                 // we have to quit or else we'll end in a dead loop
                 // we could in theory accept unknown fields so we don't have to quit here
@@ -79,18 +77,18 @@ impl<'db> Collector<'db> {
                 Err(err.into())
             }
             Err(error) => {
-                // similar connection errors returns the unchanged index
+                // similar connection errors returns the unchanged range
                 log::warn!("RequestError: {}", error);
                 rate.decelerate();
                 tokio::time::sleep(Duration::from_secs(5)).await;
-                Ok(index)
+                Ok(range)
             }
         }
     }
 
     pub async fn collect(
         &self,
-        range: Range<u64>,
+        mut range: Range<u64>,
         batch: usize,
         mut rate: RateControl,
     ) -> anyhow::Result<()> {
@@ -98,30 +96,27 @@ impl<'db> Collector<'db> {
         let mut indexed_masks: Vec<Vec<MatchMask>> =
             (0..256).map(|_| Vec::with_capacity(batch * 100)).collect();
 
-        let mut index = range.start;
         for clients in self.clients.iter().cycle().chunks(batch).into_iter() {
             for client in clients {
                 rate.wait().await;
-                match Self::request(client, index, &mut rate, &mut indexed_masks).await {
-                    Ok(idx) => {
-                        // update match_seq_num in success
-                        index = idx;
-                        if index >= range.end {
-                            return Ok(());
-                        }
-                    }
+                match Self::request(client, range, &mut rate, &mut indexed_masks).await {
                     Err(err) => {
                         // request will only fail when decode error happened
                         // in case this happens, we still want to save requested matches
                         self.save(&indexed_masks).await?;
-                        // clear inner vec so we don't have to dealloc and realloc
-                        indexed_masks.iter_mut().for_each(|masks| masks.clear());
                         return Err(err);
                     }
+                    Ok(new_range) if new_range.is_empty() => {
+                        // we have finished collect this range
+                        return Ok(());
+                    }
+                    Ok(new_range) => range = new_range,
                 }
             }
             // save to clickhouse every <batch> requests
             self.save(&indexed_masks).await?;
+            // clear saved inner vec so we don't have to dealloc and realloc
+            indexed_masks.iter_mut().for_each(|masks| masks.clear());
         }
 
         Ok(())
