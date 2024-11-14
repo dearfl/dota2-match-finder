@@ -1,6 +1,6 @@
 use clickhouse::error::Error;
 
-use crate::dota2::{MatchMask, MatchRange};
+use crate::dota2::MatchMask;
 
 pub struct Database {
     database: String,
@@ -35,25 +35,6 @@ impl Database {
         let client = client.with_database(&database);
 
         Ok(Self { database, client })
-    }
-
-    pub async fn save_range(&self, range: MatchRange) -> Result<(), Error> {
-        let table = "collected";
-        let query = format!(
-            "CREATE TABLE IF NOT EXISTS {}.{} (
-                start UInt64,
-                end UInt64,
-            )
-            ENGINE = MergeTree()
-            ORDER BY (start, end)
-            PRIMARY KEY start;",
-            &self.database, table
-        );
-        self.client.query(&query).execute().await?;
-        let mut insert = self.client.insert(table)?;
-        insert.write(&range).await?;
-        insert.end().await?;
-        Ok(())
     }
 
     pub async fn save_indexed_masks(&self, hero: u8, masks: &[MatchMask]) -> Result<(), Error> {
