@@ -57,6 +57,15 @@ impl Client {
         Ok(Self { client, key })
     }
 
+    pub async fn get_a_recent_match_seq_num(&self) -> Result<u64, RequestError> {
+        self.get_match_history(0, 100).await.map(|history| {
+            history
+                .matches
+                .iter()
+                .fold(0, |init, mat| std::cmp::max(init, mat.match_seq_num))
+        })
+    }
+
     pub async fn get_match_history(
         &self,
         start_id: u64,
