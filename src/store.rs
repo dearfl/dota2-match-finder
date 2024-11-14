@@ -1,6 +1,7 @@
 use std::{num::NonZeroU8, ops::Range, time::Duration};
 
 use crate::{
+    collector::CollectorStatus,
     database::Database,
     dota2::{full::Match, MatchMask},
 };
@@ -29,8 +30,8 @@ impl<'db> Store<'db> {
         }
     }
 
-    pub(crate) fn start(&self) -> u64 {
-        self.range.start
+    pub fn range(&self) -> Range<u64> {
+        self.range.start..self.range.end
     }
 
     pub fn current_range(&self) -> Range<u64> {
@@ -38,7 +39,12 @@ impl<'db> Store<'db> {
     }
 
     // TODO: maybe decoupling(collector logic) a bit?
-    pub async fn push(&mut self, matches: &[Match]) -> anyhow::Result<bool> {
+    pub async fn push(
+        &mut self,
+        matches: &[Match],
+        status: &mut CollectorStatus,
+        path: &str,
+    ) -> anyhow::Result<bool> {
         matches
             .iter()
             .filter(|&mat| self.range.contains(&mat.match_seq_num)) // filter out OutOfRange matches
@@ -61,6 +67,9 @@ impl<'db> Store<'db> {
         // save when reaching <batch> matches or completed
         if self.count >= self.batch || self.is_completed() {
             self.save().await?;
+            status.finish(self.range.start..self.index);
+            let content = serde_json::to_string_pretty(status)?;
+            std::fs::write(path, content)?;
         }
         Ok(self.is_completed())
     }

@@ -1,5 +1,6 @@
-use std::time::Duration;
+use std::{ops::Range, time::Duration};
 
+use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
 use crate::{
@@ -7,6 +8,66 @@ use crate::{
     database::Database,
     store::Store,
 };
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct CollectorStatus {
+    pub collected: Vec<(u64, u64)>,
+}
+
+impl CollectorStatus {
+    pub fn prev(idx: u64) -> Range<u64> {
+        const N: u64 = 100000;
+        let start = (idx - 1) / N * N;
+        start..idx
+    }
+
+    pub async fn onward_range(&mut self, client: &Client) -> anyhow::Result<Range<u64>> {
+        let last = self.collected.last();
+        match last {
+            None => {
+                let start = client.get_a_recent_match_seq_num().await?;
+                self.collected.push((start, start));
+                Ok(start..u64::MAX)
+            }
+            Some((_, end)) => Ok(*end..u64::MAX),
+        }
+    }
+
+    pub async fn past_range(&mut self, client: &Client) -> anyhow::Result<Range<u64>> {
+        let mut iter = self.collected.iter().rev();
+        let last = iter.next();
+        let sec = iter.next();
+        match (sec, last) {
+            (None, None) => {
+                let start = client.get_a_recent_match_seq_num().await?;
+                self.collected.push((start, start));
+                Ok(Self::prev(start))
+            }
+            (None, Some(&(start, _))) => Ok(Self::prev(start)),
+            (Some(&(_, start)), Some(&(end, _))) => Ok(start..end),
+            (Some(_), None) => unreachable!(),
+        }
+    }
+
+    pub fn finish(&mut self, range: Range<u64>) {
+        self.collected.push((range.start, range.end));
+        self.collected.sort_unstable();
+        self.collected = self.collected.iter().fold(
+            Vec::with_capacity(self.collected.len()),
+            |mut init, &(start, end)| {
+                match init.last_mut() {
+                    Some((_, e)) if start <= *e => {
+                        *e = std::cmp::max(*e, end);
+                    }
+                    _ => {
+                        init.push((start, end));
+                    }
+                };
+                init
+            },
+        );
+    }
+}
 
 pub struct Collector<'db> {
     client: Client,
@@ -20,14 +81,14 @@ impl<'db> Collector<'db> {
     }
 
     pub async fn collect(&self, batch: usize, interval: Duration) -> anyhow::Result<()> {
-        let prev = |idx: u64| {
-            const N: u64 = 100000;
-            let start = (idx - 1) / N * N;
-            start..idx
-        };
+        let path = "./collected.json";
+        let mut collected = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<CollectorStatus>(&content).ok())
+            .unwrap_or_default();
 
-        let start = self.client.get_a_recent_match_seq_num().await?;
-        let (range_onward, range_past) = (start..u64::MAX, prev(start));
+        let range_onward = collected.onward_range(&self.client).await?;
+        let range_past = collected.past_range(&self.client).await?;
 
         // using larger batch size when collecting past matches
         let batch_past = batch * 10;
@@ -49,9 +110,11 @@ impl<'db> Collector<'db> {
                     let start = store.current_range().start;
                     match self.client.get_match_history_full(start, 100).await {
                         Ok(history) => {
-                            if store.push(&history.matches).await? {
-                                let start = store.start();
-                                *store = Store::new(self.database, prev(start), batch_past);
+                            if store.push(&history.matches, &mut collected, path).await? {
+                                let range = store.range();
+                                collected.finish(range);
+                                let new_range = collected.past_range(&self.client).await?;
+                                *store = Store::new(self.database, new_range, batch_past);
                             }
                             if history.matches.len() < 100 {
                                 break;
