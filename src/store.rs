@@ -7,7 +7,7 @@ use crate::{
 
 pub struct Store<'db> {
     index: u64,
-    pub range: Range<u64>,
+    range: Range<u64>,
     // use Vec<Vec> instead of HashMap<NonZeroU8, Vec> for better performance
     masks: Vec<Vec<MatchMask>>,
     count: usize,
@@ -29,6 +29,10 @@ impl<'db> Store<'db> {
         }
     }
 
+    pub(crate) fn start(&self) -> u64 {
+        self.range.start
+    }
+
     pub fn current_range(&self) -> Range<u64> {
         self.index..self.range.end
     }
@@ -46,11 +50,15 @@ impl<'db> Store<'db> {
                     .for_each(|idx| self.masks[idx.get() as usize].push(mask));
             });
 
+        let start = self.index;
         self.index = matches.iter().fold(self.index, |init, mat| {
             std::cmp::max(init, mat.match_seq_num + 1)
         });
+        let count = matches.len();
+        log::debug!("Collected {} matches in [{}, {})", count, start, self.index);
 
-        self.count += matches.len();
+        self.count += count;
+        // save when reaching <batch> matches or completed
         if self.count >= self.batch || self.is_completed() {
             self.save().await?;
         }
