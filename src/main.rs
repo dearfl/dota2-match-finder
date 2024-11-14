@@ -28,10 +28,12 @@ async fn main() -> anyhow::Result<()> {
     .await?;
 
     let collector = Collector::new(&database, &args.key, args.proxy.as_deref())?;
-
     let task_collect = collector.collect(args.batch_size, Duration::from_millis(args.interval));
 
-    // // this join will never end
-    let _ = tokio::join!(task_collect,);
-    Ok(())
+    // ideally this select should never end
+    tokio::select! {
+        val = task_collect => {
+            return val;
+        },
+    };
 }
