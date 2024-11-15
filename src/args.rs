@@ -19,5 +19,10 @@ pub struct Args {
     #[arg(long, default_value_t = 1000)]
     pub batch_size: usize,
 
+    #[arg(long)]
+    pub address: Option<String>,
+    #[arg(long, default_value_t = 8888)]
+    pub port: u16,
+
     pub key: String,
 }
