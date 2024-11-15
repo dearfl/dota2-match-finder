@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState { database: db_axum };
 
     let collector = Collector::new(db_collector.as_ref(), &args.key, args.proxy.as_deref())?;
-    let task_collect = collector.collect(args.batch_size, Duration::from_millis(args.interval));
+    let task_collect = collector.collect(args.batch, Duration::from_millis(args.interval));
 
     let app = Router::new().route(
         "/",
@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
             move |body| find_matches(body, state)
         }),
     );
-    let address = args.address.unwrap_or("localhost".to_string());
+    let address = args.addr.unwrap_or("localhost".to_string());
     let address = format!("{}:{}", address, args.port);
     let listener = tokio::net::TcpListener::bind(&address).await?;
 
