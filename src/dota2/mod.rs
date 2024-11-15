@@ -66,16 +66,50 @@ pub struct MatchMask {
 impl From<&full::Match> for MatchMask {
     fn from(value: &full::Match) -> Self {
         let match_id = value.match_id;
-        let mut radiant = U256([0; 4]);
-        let mut dire = U256([0; 4]);
+        let mut radiant = U256::zero();
+        let mut dire = U256::zero();
         for player in &value.players {
             let side: Side = player.player_slot.into();
-            let hero_mask = U256::one() << U256::from(player.hero_id);
+            let hero_mask = U256::one() << player.hero_id;
             match side {
                 Side::Radiant => radiant |= hero_mask,
                 Side::Dire => dire |= hero_mask,
             }
         }
+        Self {
+            match_id,
+            radiant,
+            dire,
+        }
+    }
+}
+
+#[derive(Row, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct MatchDraft {
+    pub match_id: u64,
+    pub radiant: [u8; 5],
+    pub dire: [u8; 5],
+}
+
+impl From<&MatchMask> for MatchDraft {
+    fn from(value: &MatchMask) -> Self {
+        let to_array = |val: U256| -> [u8; 5] {
+            let mut arr = [0; 5];
+            let mut idx = 0;
+            for hero in 0..256 {
+                if val.bit(hero) {
+                    // can we replace this index operation
+                    arr[idx] = hero as u8;
+                    idx += 1;
+                }
+            }
+            arr
+        };
+
+        let match_id = value.match_id;
+        let radiant = to_array(value.radiant);
+        let dire = to_array(value.dire);
+
         Self {
             match_id,
             radiant,
