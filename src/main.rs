@@ -35,17 +35,12 @@ pub struct AppState {
 }
 
 async fn find_matches(
-    Json(condition): Json<QueryParameter>,
+    Json(para): Json<QueryParameter>,
     state: Arc<AppState>,
 ) -> Json<Vec<MatchDraft>> {
     let result = state
         .database
-        .query_matches(
-            &condition.team1,
-            &condition.team2,
-            condition.count.max(100),
-            condition.offset,
-        )
+        .query_matches(&para.team1, &para.team2, para.count.min(100), para.offset)
         .await
         .ok()
         .unwrap_or_default();
