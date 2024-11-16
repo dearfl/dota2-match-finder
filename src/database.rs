@@ -34,6 +34,23 @@ impl Database {
 
         let client = client.with_database(&database);
 
+        for hero in 0u8..=255 {
+            let table = format!("index_mask_{}", hero);
+            let query = format!(
+                "CREATE TABLE IF NOT EXISTS {}.{} (
+                        match_id UInt64,
+                        radiant UInt256,
+                        dire UInt256,
+                    )
+                    ENGINE = MergeTree()
+                    ORDER BY match_id
+                    PARTITION BY intDiv(match_id, 100000000)
+                    PRIMARY KEY match_id;",
+                &database, table
+            );
+            client.query(&query).execute().await?;
+        }
+
         Ok(Self { database, client })
     }
 
@@ -138,19 +155,6 @@ impl Database {
 
     pub async fn save_indexed_masks(&self, hero: u8, masks: &[MatchMask]) -> Result<(), Error> {
         let table = format!("index_mask_{}", hero);
-        let query = format!(
-            "CREATE TABLE IF NOT EXISTS {}.{} (
-                    match_id UInt64,
-                    radiant UInt256,
-                    dire UInt256,
-                )
-                ENGINE = MergeTree()
-                ORDER BY match_id
-                PARTITION BY intDiv(match_id, 100000000)
-                PRIMARY KEY match_id;",
-            &self.database, table
-        );
-        self.client.query(&query).execute().await?;
         let mut insert = self.client.insert(&table)?;
         for mat in masks {
             insert.write(mat).await?;
