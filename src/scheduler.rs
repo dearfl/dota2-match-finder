@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, ops::Range, sync::Arc, time::Duration};
 
+use backon::ExponentialBuilder;
+use backon::Retryable;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
@@ -31,7 +33,12 @@ impl CollectorState {
         let last = self.collected.last();
         match last {
             None => {
-                let start = client.get_a_recent_match_seq_num().await?;
+                let start = { || async { client.get_a_recent_match_seq_num().await } }
+                    .retry(ExponentialBuilder::default())
+                    .notify(|err, dur| {
+                        log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+                    })
+                    .await?;
                 self.collected.push((start, start));
                 Ok(start..u64::MAX)
             }
@@ -194,7 +201,12 @@ impl Scheduler {
                 continue;
             }
             // could we make some retry attempts?
-            self.database.save_indexed_masks(hero as u8, &masks).await?;
+            { || async { self.database.save_indexed_masks(hero as u8, &masks).await } }
+                .retry(ExponentialBuilder::default())
+                .notify(|err, dur| {
+                    log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+                })
+                .await?;
             // wait a bit here to make clickhouse happy?
             tokio::time::sleep(Duration::from_millis(40)).await;
         }
