@@ -1,141 +1,112 @@
-use std::{ops::Range, time::Duration};
-
-use serde::{Deserialize, Serialize};
-use tokio::time::Instant;
+use std::{num::NonZeroU8, ops::Range};
 
 use crate::{
     client::{Client, RequestError},
-    database::Database,
-    store::Store,
+    dota2::{
+        full::{Match, MatchHistory},
+        MatchMask,
+    },
 };
 
-#[derive(Serialize, Deserialize, Clone, Default)]
-pub struct CollectorStatus {
-    pub collected: Vec<(u64, u64)>,
+#[derive(Debug, Clone)]
+pub enum CollectResult {
+    Normal,
+    Yield,
+    Decel,
+    Save(Range<u64>, Vec<Vec<MatchMask>>),
+    Completed(Range<u64>, Vec<Vec<MatchMask>>),
 }
 
-impl CollectorStatus {
-    pub fn prev(idx: u64) -> Range<u64> {
-        const N: u64 = 100000;
-        let start = (idx - 1) / N * N;
-        start..idx
-    }
+pub struct Collector {
+    // currently collecting range
+    cur: Range<u64>,
+    // currently cached range
+    cached: Range<u64>,
+    // use Vec<Vec> instead of HashMap<NonZeroU8, Vec> for better performance
+    cache: Vec<Vec<MatchMask>>,
+    batch: usize,
+}
 
-    pub async fn onward_range(&mut self, client: &Client) -> anyhow::Result<Range<u64>> {
-        let last = self.collected.last();
-        match last {
-            None => {
-                let start = client.get_a_recent_match_seq_num().await?;
-                self.collected.push((start, start));
-                Ok(start..u64::MAX)
-            }
-            Some((_, end)) => Ok(*end..u64::MAX),
+impl Collector {
+    pub fn new(range: Range<u64>, batch: usize) -> Self {
+        let Range { start, end } = range;
+        let cur = range.clone();
+        let cached = range.start..range.start;
+        let cache = (0..256).map(|_| Vec::with_capacity(batch + 100)).collect();
+        log::info!("Start collecting matches in [{}, {})", start, end);
+        Self {
+            cur,
+            cache,
+            batch,
+            cached,
         }
     }
 
-    pub async fn past_range(&mut self, client: &Client) -> anyhow::Result<Range<u64>> {
-        let mut iter = self.collected.iter().rev();
-        let last = iter.next();
-        let sec = iter.next();
-        match (sec, last) {
-            (None, None) => {
-                let start = client.get_a_recent_match_seq_num().await?;
-                self.collected.push((start, start));
-                Ok(Self::prev(start))
-            }
-            (None, Some(&(start, _))) => Ok(Self::prev(start)),
-            (Some(&(_, start)), Some(&(end, _))) => Ok(start..end),
-            (Some(_), None) => unreachable!(),
+    fn process(&mut self, matches: &[Match]) -> CollectResult {
+        let start = self.cur.start;
+        matches
+            .iter()
+            .filter(|&mat| self.cur.contains(&mat.match_seq_num)) // filter out OutOfRange matches
+            .for_each(|mat| {
+                let mask = mat.into();
+                mat.players
+                    .iter()
+                    .filter_map(|p| NonZeroU8::new(p.hero_id)) // filter out unknown hero
+                    .for_each(|idx| self.cache[idx.get() as usize].push(mask));
+            });
+
+        let end = matches.iter().fold(start, |init, mat| {
+            std::cmp::max(init, mat.match_seq_num + 1)
+        });
+        let count = matches.len();
+        log::debug!("Collected {} matches in [{}, {})", count, start, end);
+
+        self.cur.start = end;
+        self.cached.end = end;
+
+        if matches.len() < 100 {
+            return CollectResult::Yield;
         }
+
+        if self.cur.is_empty() {
+            let range = self.cur.start..self.cur.start;
+            let range = std::mem::replace(&mut self.cached, range);
+            let masks = vec![];
+            let masks = std::mem::replace(&mut self.cache, masks);
+            return CollectResult::Completed(range, masks);
+        }
+
+        if self.cached.end - self.cached.start > self.batch as u64 {
+            let range = self.cur.start..self.cur.start;
+            let range = std::mem::replace(&mut self.cached, range);
+            let masks = (0..256)
+                .map(|_| Vec::with_capacity(self.batch + 100))
+                .collect();
+            let masks = std::mem::replace(&mut self.cache, masks);
+            return CollectResult::Save(range, masks);
+        }
+
+        CollectResult::Normal
     }
 
-    pub fn finish(&mut self, range: Range<u64>) {
-        self.collected.push((range.start, range.end));
-        self.collected.sort_unstable();
-        self.collected = self.collected.iter().fold(
-            Vec::with_capacity(self.collected.len()),
-            |mut init, &(start, end)| {
-                match init.last_mut() {
-                    Some((_, e)) if start <= *e => {
-                        *e = std::cmp::max(*e, end);
-                    }
-                    _ => {
-                        init.push((start, end));
-                    }
-                };
-                init
-            },
-        );
-    }
-}
-
-pub struct Collector<'db> {
-    client: Client,
-    database: &'db Database,
-}
-
-impl<'db> Collector<'db> {
-    pub fn new(database: &'db Database, key: &str, proxy: Option<&str>) -> anyhow::Result<Self> {
-        let client = Client::new(key, proxy)?;
-        Ok(Self { client, database })
-    }
-
-    pub async fn collect(&self, batch: usize, interval: Duration) -> anyhow::Result<()> {
-        let path = "./collected.json";
-        let mut collected = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<CollectorStatus>(&content).ok())
-            .unwrap_or_default();
-
-        let range_onward = collected.onward_range(&self.client).await?;
-        let range_past = collected.past_range(&self.client).await?;
-
-        // using larger batch size when collecting past matches
-        let batch_past = batch * 10;
-
-        let mut stores = [
-            (6, Store::new(self.database, range_onward, batch)), // onward => 6
-            (3, Store::new(self.database, range_past, batch_past)), // past => 3
-        ];
-
-        let mut base = Instant::now();
-
-        // the outer loop never ends
-        loop {
-            // switch between onward and past
-            for (count, store) in stores.iter_mut() {
-                for _ in 0..*count {
-                    tokio::time::sleep_until(base + interval).await;
-                    base = Instant::now();
-                    let start = store.current_range().start;
-                    match self.client.get_match_history_full(start, 100).await {
-                        Ok(history) => {
-                            if store.push(&history.matches, &mut collected, path).await? {
-                                let range = store.range();
-                                collected.finish(range);
-                                let new_range = collected.past_range(&self.client).await?;
-                                *store = Store::new(self.database, new_range, batch_past);
-                            }
-                            if history.matches.len() < 100 {
-                                break;
-                            }
-                        }
-                        Err(RequestError::DecodeError(err, content)) => {
-                            log::error!("DecodeError: {}", err);
-                            log::info!("Saving response to {}-error.json", start);
-                            let filename = format!("{}-error.json", start);
-                            std::fs::write(filename, content)?;
-                            return Err(err.into());
-                        }
-                        Err(RequestError::ConnectionError(error)) => {
-                            log::warn!("ConnectionError: {}", error)
-                        }
-                        Err(error) => {
-                            log::warn!("RequestError: {}", error);
-                            base += Duration::from_secs(1);
-                        }
-                    }
-                }
+    pub async fn step(&mut self, client: &Client) -> anyhow::Result<CollectResult> {
+        let start = self.cur.start;
+        match client.get_match_history_full(start, 100).await {
+            Ok(MatchHistory { status: _, matches }) => Ok(self.process(&matches)),
+            Err(RequestError::DecodeError(err, content)) => {
+                log::error!("DecodeError: {}", err);
+                log::info!("Saving response to {}-error.json", start);
+                let filename = format!("{}-error.json", start);
+                std::fs::write(filename, content)?;
+                Err(err.into())
+            }
+            Err(RequestError::ConnectionError(error)) => {
+                log::warn!("ConnectionError: {}", error);
+                Ok(CollectResult::Normal)
+            }
+            Err(error) => {
+                log::warn!("RequestError: {}", error);
+                Ok(CollectResult::Decel)
             }
         }
     }
