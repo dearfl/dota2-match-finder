@@ -109,7 +109,7 @@ impl Scheduler {
         let range_onward = state.onward_range(&client).await?;
 
         let queue = VecDeque::from([
-            (16, Collector::new(range_onward, batch)), // onward => 16
+            (256, Collector::new(range_onward, batch)), // onward => 256
         ]);
 
         Ok(Self {
