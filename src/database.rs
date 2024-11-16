@@ -10,12 +10,12 @@ pub struct Database {
 
 impl Database {
     pub async fn new(
-        server: Option<&str>,
-        database: Option<&str>,
+        server: &str,
+        database: &str,
         user: Option<&str>,
         password: Option<&str>,
     ) -> Result<Self, Error> {
-        let server = server.unwrap_or("http://127.0.0.1:8123");
+        let database = database.to_string();
         let client = Client::default().with_url(server);
 
         let client = match user {
@@ -29,7 +29,6 @@ impl Database {
         };
 
         // create database if not exists
-        let database = database.unwrap_or("dota2").to_string();
         let query = format!("CREATE DATABASE IF NOT EXISTS {};", database);
         client.query(&query).execute().await?;
 

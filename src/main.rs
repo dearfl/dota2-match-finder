@@ -3,49 +3,18 @@ mod client;
 mod collector;
 mod database;
 mod dota2;
-mod store;
+mod scheduler;
+mod service;
 
 use std::{sync::Arc, time::Duration};
 
-use axum::{routing::post, Json, Router};
+use axum::{routing::post, Router};
 use clap::Parser;
 
 use args::Args;
-use collector::Collector;
 use database::Database;
-use dota2::MatchDraft;
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct QueryParameter {
-    pub team1: Vec<u8>,
-    pub team2: Vec<u8>,
-    #[serde(default = "default_count")]
-    pub count: usize,
-    #[serde(default)]
-    pub offset: usize,
-}
-
-pub fn default_count() -> usize {
-    10
-}
-
-pub struct AppState {
-    database: Arc<Database>,
-}
-
-async fn find_matches(
-    Json(para): Json<QueryParameter>,
-    state: Arc<AppState>,
-) -> Json<Vec<MatchDraft>> {
-    let result = state
-        .database
-        .query_matches(&para.team1, &para.team2, para.count.min(100), para.offset)
-        .await
-        .ok()
-        .unwrap_or_default();
-    Json(result)
-}
+use scheduler::Scheduler;
+use service::{find_matches, AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -54,20 +23,27 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     let database = Database::new(
-        args.clickhouse_server.as_deref(),
-        args.clickhouse_database.as_deref(),
+        &args.clickhouse_server,
+        &args.clickhouse_database,
         args.clickhouse_user.as_deref(),
         args.clickhouse_password.as_deref(),
     )
     .await?;
 
-    let db_axum = Arc::new(database);
-    let db_collector = db_axum.clone();
+    let database = Arc::new(database);
 
-    let state = AppState { database: db_axum };
+    let state = AppState::new(database.clone());
 
-    let collector = Collector::new(db_collector.as_ref(), &args.key, args.proxy.as_deref())?;
-    let task_collect = collector.collect(args.batch, Duration::from_millis(args.interval));
+    let interval = Duration::from_millis(args.interval);
+    let mut sche = Scheduler::new(
+        &args.key,
+        args.proxy.as_deref(),
+        database,
+        &args.collected,
+        args.batch,
+        interval,
+    )
+    .await?;
 
     let app = Router::new().route(
         "/",
@@ -76,13 +52,12 @@ async fn main() -> anyhow::Result<()> {
             move |body| find_matches(body, state)
         }),
     );
-    let address = args.addr.unwrap_or("localhost".to_string());
-    let address = format!("{}:{}", address, args.port);
+    let address = format!("{}:{}", args.addr, args.port);
     let listener = tokio::net::TcpListener::bind(&address).await?;
 
     // ideally this select should never end
     tokio::select! {
-        val = task_collect => {
+        val = sche.run() => {
             val?;
             return Ok(());
         },
