@@ -1,5 +1,7 @@
 use std::{num::NonZeroU8, ops::Range};
 
+use backon::{ExponentialBuilder, Retryable};
+
 use crate::{
     client::{Client, RequestError},
     dota2::{
@@ -91,7 +93,14 @@ impl Collector {
 
     pub async fn step(&mut self, client: &Client) -> anyhow::Result<CollectResult> {
         let start = self.cur.start;
-        match client.get_match_history_full(start, 100).await {
+        let result = { || async { client.get_match_history_full(start, 100).await } }
+            .retry(ExponentialBuilder::default())
+            .notify(|err, dur| {
+                log::warn!("Retring {} after {}ms", err, dur.as_millis());
+            })
+            .await;
+
+        match result {
             Ok(MatchHistory { status: _, matches }) => Ok(self.process(&matches)),
             Err(RequestError::DecodeError(err, content)) => {
                 log::error!("DecodeError: {}", err);
