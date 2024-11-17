@@ -1,4 +1,4 @@
-use std::{num::NonZeroU8, ops::Range};
+use std::ops::Range;
 
 use backon::{ExponentialBuilder, Retryable};
 
@@ -15,8 +15,8 @@ pub enum CollectResult {
     Normal,
     Yield,
     Decel,
-    Save(Range<u64>, Vec<Vec<MatchMask>>),
-    Completed(Range<u64>, Vec<Vec<MatchMask>>),
+    Save(Range<u64>, Vec<MatchMask>),
+    Completed(Range<u64>, Vec<MatchMask>),
 }
 
 pub struct Collector {
@@ -25,7 +25,7 @@ pub struct Collector {
     // currently cached range
     cached: Range<u64>,
     // use Vec<Vec> instead of HashMap<NonZeroU8, Vec> for better performance
-    cache: Vec<Vec<MatchMask>>,
+    cache: Vec<MatchMask>,
     batch: usize,
 }
 
@@ -34,7 +34,7 @@ impl Collector {
         let Range { start, end } = range;
         let cur = range.clone();
         let cached = range.start..range.start;
-        let cache = (0..256).map(|_| Vec::with_capacity(batch + 100)).collect();
+        let cache = Vec::with_capacity(batch + 100);
         log::info!("Start collecting matches in [{}, {})", start, end);
         Self {
             cur,
@@ -51,10 +51,7 @@ impl Collector {
             .filter(|&mat| self.cur.contains(&mat.match_seq_num)) // filter out OutOfRange matches
             .for_each(|mat| {
                 let mask = mat.into();
-                mat.players
-                    .iter()
-                    .filter_map(|p| NonZeroU8::new(p.hero_id)) // filter out unknown hero
-                    .for_each(|idx| self.cache[idx.get() as usize].push(mask));
+                self.cache.push(mask);
             });
 
         let end = matches.iter().fold(start, |init, mat| {
@@ -81,9 +78,7 @@ impl Collector {
         if self.cached.end - self.cached.start > self.batch as u64 {
             let range = self.cur.start..self.cur.start;
             let range = std::mem::replace(&mut self.cached, range);
-            let masks = (0..256)
-                .map(|_| Vec::with_capacity(self.batch + 100))
-                .collect();
+            let masks = Vec::with_capacity(self.batch + 100);
             let masks = std::mem::replace(&mut self.cache, masks);
             return CollectResult::Save(range, masks);
         }
@@ -95,6 +90,7 @@ impl Collector {
         let start = self.cur.start;
         let result = { || async { client.get_match_history_full(start, 100).await } }
             .retry(ExponentialBuilder::default())
+            .when(|err| matches!(err, RequestError::ConnectionError(_)))
             .notify(|err, dur| {
                 log::warn!("Retring {} after {}ms", err, dur.as_millis());
             })

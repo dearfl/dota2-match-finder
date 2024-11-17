@@ -14,10 +14,27 @@ use crate::{
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct CollectorState {
-    pub collected: Vec<(u64, u64)>,
+    collected: Vec<(u64, u64)>,
 }
 
 impl CollectorState {
+    pub async fn new(path: &str, client: &Client) -> anyhow::Result<Self> {
+        let mut state = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<CollectorState>(&content).ok())
+            .unwrap_or_default();
+        if state.collected.is_empty() {
+            let start = { || async { client.get_a_recent_match_seq_num().await } }
+                .retry(ExponentialBuilder::default())
+                .notify(|err, dur| {
+                    log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+                })
+                .await?;
+            state.collected.push((start, start));
+        }
+        Ok(state)
+    }
+
     pub fn prev_range(idx: u64) -> Option<Range<u64>> {
         const N: u64 = 100000;
         match idx {
@@ -29,41 +46,19 @@ impl CollectorState {
         }
     }
 
-    pub async fn onward_range(&mut self, client: &Client) -> anyhow::Result<Range<u64>> {
-        let last = self.collected.last();
-        match last {
-            None => {
-                let start = { || async { client.get_a_recent_match_seq_num().await } }
-                    .retry(ExponentialBuilder::default())
-                    .notify(|err, dur| {
-                        log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
-                    })
-                    .await?;
-                self.collected.push((start, start));
-                Ok(start..u64::MAX)
-            }
-            Some((_, end)) => Ok(*end..u64::MAX),
-        }
+    pub fn onward_range(&self) -> Range<u64> {
+        let end = self.collected.last().unwrap().1;
+        end..u64::MAX
     }
 
-    pub async fn past_range(&mut self, client: &Client) -> anyhow::Result<Option<Range<u64>>> {
+    pub fn past_range(&self) -> Option<Range<u64>> {
         let mut iter = self.collected.iter().rev();
         let last = iter.next();
         let sec = iter.next();
         match (sec, last) {
-            (None, None) => {
-                let start = { || async { client.get_a_recent_match_seq_num().await } }
-                    .retry(ExponentialBuilder::default())
-                    .notify(|err, dur| {
-                        log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
-                    })
-                    .await?;
-                self.collected.push((start, start));
-                Ok(Self::prev_range(start))
-            }
-            (None, Some(&(start, _))) => Ok(Self::prev_range(start)),
-            (Some(&(_, start)), Some(&(end, _))) => Ok(Some(start..end)),
-            (Some(_), None) => unreachable!(),
+            (None, Some(&(start, _))) => Self::prev_range(start),
+            (Some(&(_, start)), Some(&(end, _))) => Some(start..end),
+            _ => unreachable!(),
         }
     }
 
@@ -106,12 +101,9 @@ impl Scheduler {
         let client = Client::new(key, proxy)?;
 
         let state_path = state_path.to_string();
-        let mut state = std::fs::read_to_string(&state_path)
-            .ok()
-            .and_then(|content| serde_json::from_str::<CollectorState>(&content).ok())
-            .unwrap_or_default();
+        let state = CollectorState::new(&state_path, &client).await?;
 
-        let range_onward = state.onward_range(&client).await?;
+        let range_onward = state.onward_range();
 
         let queue = VecDeque::from([
             (256, Collector::new(range_onward, batch)), // onward => 256
@@ -128,20 +120,16 @@ impl Scheduler {
         })
     }
 
-    pub async fn new_past_collector(&mut self) -> anyhow::Result<Option<Collector>> {
-        let col = self
-            .state
-            .past_range(&self.client)
-            .await?
-            .map(|range| Collector::new(range, self.batch * 10));
-        Ok(col)
+    pub fn new_past_collector(&self) -> Option<Collector> {
+        self.state
+            .past_range()
+            .map(|range| Collector::new(range, self.batch * 10))
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
-        // add a collector for past matches
-        let past_col = self.new_past_collector().await?;
-        if let Some(col) = past_col {
-            self.queue.push_back((4, col)); // by default, past collector only runs 4 times in one iteration
+        // add a collector for past matches if possible
+        if let Some(col) = self.new_past_collector() {
+            self.queue.push_back((1, col)); // by default, past collector only runs once in one iteration
         }
 
         let mut base = Instant::now();
@@ -184,7 +172,7 @@ impl Scheduler {
                         self.save(range, masks).await?;
                         // completed current range, try to schedule a new range
                         // None means we have finished collecting all history matches
-                        break Some(count).zip(self.new_past_collector().await?);
+                        break Some(count).zip(self.new_past_collector());
                     }
                 }
                 index += 1;
@@ -199,19 +187,14 @@ impl Scheduler {
         Ok(())
     }
 
-    async fn save(&mut self, range: Range<u64>, masks: Vec<Vec<MatchMask>>) -> anyhow::Result<()> {
+    async fn save(&mut self, range: Range<u64>, masks: Vec<MatchMask>) -> anyhow::Result<()> {
         log::info!("Saving matches in [{}, {})!", range.start, range.end);
-        for (hero, masks) in masks.into_iter().enumerate() {
-            if masks.is_empty() {
-                continue;
-            }
-            { || async { self.database.save_indexed_masks(hero as u8, &masks).await } }
-                .retry(ExponentialBuilder::default())
-                .notify(|err, dur| {
-                    log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
-                })
-                .await?;
-        }
+        { || async { self.database.save_match_masks(&masks).await } }
+            .retry(ExponentialBuilder::default())
+            .notify(|err, dur| {
+                log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+            })
+            .await?;
         self.state.complete(range);
         self.save_state()?;
         Ok(())
