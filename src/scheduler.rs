@@ -52,7 +52,12 @@ impl CollectorState {
         let sec = iter.next();
         match (sec, last) {
             (None, None) => {
-                let start = client.get_a_recent_match_seq_num().await?;
+                let start = { || async { client.get_a_recent_match_seq_num().await } }
+                    .retry(ExponentialBuilder::default())
+                    .notify(|err, dur| {
+                        log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+                    })
+                    .await?;
                 self.collected.push((start, start));
                 Ok(Self::prev_range(start))
             }
@@ -200,15 +205,12 @@ impl Scheduler {
             if masks.is_empty() {
                 continue;
             }
-            // could we make some retry attempts?
             { || async { self.database.save_indexed_masks(hero as u8, &masks).await } }
                 .retry(ExponentialBuilder::default())
                 .notify(|err, dur| {
                     log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
                 })
                 .await?;
-            // wait a bit here to make clickhouse happy?
-            tokio::time::sleep(Duration::from_millis(40)).await;
         }
         self.state.complete(range);
         self.save_state()?;
