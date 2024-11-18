@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.91"
-axum = "0.7.7"
+axum = "0.7.9"
 backon = "1.2.0"
 clap = { version = "4.5.20", features = ["derive"] }
 clickhouse = "0.13.1"
