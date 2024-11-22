@@ -6,7 +6,7 @@ use crate::{
     client::{Client, RequestError},
     dota2::{
         full::{Match, MatchHistory},
-        MatchMask,
+        MatchDraft,
     },
 };
 
@@ -15,8 +15,8 @@ pub enum CollectResult {
     Normal,
     Yield,
     Decel,
-    Save(Range<u64>, Vec<MatchMask>),
-    Completed(Range<u64>, Vec<MatchMask>),
+    Save(Range<u64>, Vec<MatchDraft>),
+    Completed(Range<u64>, Vec<MatchDraft>),
 }
 
 pub struct Collector {
@@ -25,7 +25,7 @@ pub struct Collector {
     // currently cached range
     cached: Range<u64>,
     // use Vec<Vec> instead of HashMap<NonZeroU8, Vec> for better performance
-    cache: Vec<MatchMask>,
+    cache: Vec<MatchDraft>,
     batch: usize,
 }
 

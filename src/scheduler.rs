@@ -9,7 +9,7 @@ use crate::{
     client::Client,
     collector::{CollectResult, Collector},
     database::Database,
-    dota2::MatchMask,
+    dota2::MatchDraft,
 };
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -187,7 +187,7 @@ impl Scheduler {
         Ok(())
     }
 
-    async fn save(&mut self, range: Range<u64>, masks: Vec<MatchMask>) -> anyhow::Result<()> {
+    async fn save(&mut self, range: Range<u64>, masks: Vec<MatchDraft>) -> anyhow::Result<()> {
         log::info!("Saving matches in [{}, {})!", range.start, range.end);
         { || async { self.database.save_match_masks(&masks).await } }
             .retry(ExponentialBuilder::default())
