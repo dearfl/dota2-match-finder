@@ -84,27 +84,17 @@ impl From<&full::Match> for MatchMask {
     }
 }
 
-#[derive(Row, Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Row, Debug, Clone, Serialize, Deserialize)]
 pub struct MatchDraft {
     pub match_id: u64,
-    pub radiant: [u8; 5],
-    pub dire: [u8; 5],
+    pub radiant: Vec<u8>,
+    pub dire: Vec<u8>,
 }
 
 impl From<&MatchMask> for MatchDraft {
     fn from(value: &MatchMask) -> Self {
-        let to_array = |val: U256| -> [u8; 5] {
-            let mut arr = [0; 5];
-            let mut idx = 0;
-            for hero in 0..256 {
-                if val.bit(hero) {
-                    // can we replace this index operation
-                    arr[idx] = hero as u8;
-                    idx += 1;
-                }
-            }
-            arr
-        };
+        let to_array =
+            |val: U256| -> Vec<u8> { (0..=255u8).filter(|&idx| val.bit(idx.into())).collect() };
 
         let match_id = value.match_id;
         let radiant = to_array(value.radiant);
@@ -126,5 +116,30 @@ pub struct MatchId {
 impl From<u64> for MatchId {
     fn from(value: u64) -> Self {
         Self { match_id: value }
+    }
+}
+
+mod tests {
+
+    #[test]
+    fn test() {
+        use super::full::MatchHistoryResponse;
+        use super::{MatchDraft, MatchMask};
+
+        let parse = |file: &str| -> Vec<MatchDraft> {
+            let content = std::fs::read_to_string(file).expect("Failed to read file");
+            let resp = serde_json::from_str::<MatchHistoryResponse>(&content)
+                .expect("Failed to parse json response");
+            resp.result
+                .matches
+                .iter()
+                .map(|mat| {
+                    let mask: MatchMask = mat.into();
+                    (&mask).into()
+                })
+                .collect()
+        };
+        parse("./tests/1730303804-error.json");
+        parse("./tests/6742154809-error.json");
     }
 }
