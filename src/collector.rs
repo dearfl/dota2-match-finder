@@ -46,13 +46,12 @@ impl Collector {
 
     fn process(&mut self, matches: &[Match]) -> CollectResult {
         let start = self.cur.start;
-        matches
-            .iter()
-            .filter(|&mat| self.cur.contains(&mat.match_seq_num)) // filter out OutOfRange matches
-            .for_each(|mat| {
-                let mask = mat.into();
-                self.cache.push(mask);
-            });
+        self.cache.extend(
+            matches
+                .iter()
+                .filter(|&mat| self.cur.contains(&mat.match_seq_num))
+                .map(Into::into),
+        );
 
         let end = matches.iter().fold(start, |init, mat| {
             std::cmp::max(init, mat.match_seq_num + 1)
@@ -91,8 +90,8 @@ impl Collector {
         let result = { || async { client.get_match_history_full(start, 100).await } }
             .retry(ExponentialBuilder::default())
             .when(|err| matches!(err, RequestError::ConnectionError(_)))
-            .notify(|err, dur| {
-                log::warn!("Retring {} after {}ms", err, dur.as_millis());
+            .notify(|_, dur| {
+                log::warn!("Retring connection error after {}ms", dur.as_millis());
             })
             .await;
 
@@ -106,11 +105,11 @@ impl Collector {
                 Err(err.into())
             }
             Err(RequestError::ConnectionError(error)) => {
-                log::warn!("ConnectionError: {}", error);
+                log::warn!("ConnectionError({}): {}", start, error.without_url());
                 Ok(CollectResult::Normal)
             }
             Err(error) => {
-                log::warn!("RequestError: {}", error);
+                log::warn!("RequestError({}): {}", start, error);
                 Ok(CollectResult::Decel)
             }
         }
