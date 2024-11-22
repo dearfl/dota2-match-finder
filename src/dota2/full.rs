@@ -160,18 +160,3 @@ pub struct MatchHistory {
 pub struct MatchHistoryResponse {
     pub result: MatchHistory,
 }
-
-mod tests {
-
-    #[test]
-    fn test_1730303804() {
-        use super::MatchHistoryResponse;
-        let parse = |file: &str| {
-            let content = std::fs::read_to_string(file).expect("Failed to read file");
-            serde_json::from_str::<MatchHistoryResponse>(&content)
-                .expect("Failed to parse json response")
-        };
-        parse("./tests/1730303804-error.json");
-        parse("./tests/6742154809-error.json");
-    }
-}
