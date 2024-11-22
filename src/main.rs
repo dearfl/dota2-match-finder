@@ -16,6 +16,36 @@ use database::Database;
 use scheduler::Scheduler;
 use service::{find_matches, AppState};
 
+async fn serve(database: Arc<Database>, address: String) -> anyhow::Result<()> {
+    let state = AppState::new(database);
+    let app = Router::new().route(
+        "/",
+        post({
+            let state = Arc::new(state);
+            move |body| find_matches(body, state)
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind(address).await?;
+
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+async fn collect(database: Arc<Database>, args: Args) -> anyhow::Result<()> {
+    let interval = Duration::from_millis(args.interval);
+    let mut sche = Scheduler::new(
+        &args.key,
+        args.proxy.as_deref(),
+        database,
+        &args.collected,
+        args.batch,
+        interval,
+    )
+    .await?;
+
+    sche.run().await
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -32,38 +62,17 @@ async fn main() -> anyhow::Result<()> {
 
     let database = Arc::new(database);
 
-    let state = AppState::new(database.clone());
-
-    let interval = Duration::from_millis(args.interval);
-    let mut sche = Scheduler::new(
-        &args.key,
-        args.proxy.as_deref(),
-        database,
-        &args.collected,
-        args.batch,
-        interval,
-    )
-    .await?;
-
-    let app = Router::new().route(
-        "/",
-        post({
-            let state = Arc::new(state);
-            move |body| find_matches(body, state)
-        }),
-    );
     let address = format!("{}:{}", args.addr, args.port);
-    let listener = tokio::net::TcpListener::bind(&address).await?;
+    let serve = tokio::spawn(serve(database.clone(), address));
+    let collect = tokio::spawn(collect(database.clone(), args));
 
     // ideally this select should never end
     tokio::select! {
-        val = sche.run() => {
-            val?;
-            return Ok(());
+        val = collect => {
+            val
         },
-        val = axum::serve(listener, app) => {
-            val?;
-            return Ok(());
+        val = serve => {
+            val
         }
-    };
+    }?
 }
