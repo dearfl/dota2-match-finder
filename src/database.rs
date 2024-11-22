@@ -5,6 +5,7 @@ use crate::dota2::MatchDraft;
 
 pub struct Database {
     database: String,
+    table: String,
     client: Client,
 }
 
@@ -33,9 +34,10 @@ impl Database {
         client.query(&query).execute().await?;
 
         let client = client.with_database(&database);
+        let table = "drafts".to_string();
 
         let query = format!(
-            "CREATE TABLE IF NOT EXISTS {}.drafts (
+            "CREATE TABLE IF NOT EXISTS {}.{} (
                 match_id UInt64,
                 radiant Tuple(UInt8, UInt8, UInt8, UInt8, UInt8),
                 dire Tuple(UInt8, UInt8, UInt8, UInt8, UInt8),
@@ -44,11 +46,15 @@ impl Database {
             ORDER BY match_id
             PARTITION BY intDiv(match_id, 10000000)
             PRIMARY KEY match_id;",
-            &database
+            &database, &table,
         );
         client.query(&query).execute().await?;
 
-        Ok(Self { database, client })
+        Ok(Self {
+            database,
+            client,
+            table,
+        })
     }
 
     pub async fn query_matches(
@@ -85,14 +91,14 @@ impl Database {
         };
 
         let query = format!(
-            "SELECT ?fields FROM {}.drafts WHERE ({} OR {}) ORDER BY match_id DESC LIMIT {} OFFSET {}",
-            self.database, cond1, cond2, limit, offset
+            "SELECT ?fields FROM {}.{} WHERE ({} OR {}) ORDER BY match_id DESC LIMIT {} OFFSET {}",
+            self.database, self.table, cond1, cond2, limit, offset
         );
         self.client.query(&query).fetch_all().await
     }
 
     pub async fn save_match_masks(&self, drafts: &[MatchDraft]) -> Result<(), Error> {
-        let mut insert = self.client.insert("drafts")?;
+        let mut insert = self.client.insert(&self.table)?;
         for draft in drafts {
             insert.write(draft).await?;
         }

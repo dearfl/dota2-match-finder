@@ -26,8 +26,8 @@ impl CollectorState {
         if state.collected.is_empty() {
             let start = { || async { client.get_a_recent_match_seq_num().await } }
                 .retry(ExponentialBuilder::default())
-                .notify(|err, dur| {
-                    log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+                .notify(|_, dur| {
+                    log::warn!("Retrying match seq num after {}ms.", dur.as_millis());
                 })
                 .await?;
             state.collected.push((start, start));
@@ -127,9 +127,10 @@ impl Scheduler {
     }
 
     pub async fn run(&mut self) -> anyhow::Result<()> {
+        // maybe we should use something like actor model
         // add a collector for past matches if possible
         if let Some(col) = self.new_past_collector() {
-            self.queue.push_back((1, col)); // by default, past collector only runs once in one iteration
+            self.queue.push_back((3, col)); // by default, past collector runs 3 times in one iteration
         }
 
         let mut base = Instant::now();
@@ -192,7 +193,7 @@ impl Scheduler {
         { || async { self.database.save_match_masks(&masks).await } }
             .retry(ExponentialBuilder::default())
             .notify(|err, dur| {
-                log::warn!("Retrying {:?} after {}ms.", err, dur.as_millis());
+                log::warn!("Retrying {} after {}ms.", err, dur.as_millis());
             })
             .await?;
         self.state.complete(range);

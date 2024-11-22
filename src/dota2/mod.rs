@@ -36,7 +36,8 @@ impl From<&full::Match> for MatchDraft {
         let mut didx = 0;
         value.players.iter().for_each(|player| {
             let side: Side = player.player_slot.into();
-            // ideally there should be 5 randiant and 5 dire players and heroes
+            // ideally there should be exactly 5 randiant and 5 dire
+            // however we live in a bizarre world
             match side {
                 Side::Radiant if ridx < 5 => {
                     radiant[ridx] = player.hero_id;
@@ -46,7 +47,7 @@ impl From<&full::Match> for MatchDraft {
                     dire[didx] = player.hero_id;
                     didx += 1;
                 }
-                _ => {}
+                _ => log::warn!("problematic match {}", match_id),
             }
         });
         Self {
