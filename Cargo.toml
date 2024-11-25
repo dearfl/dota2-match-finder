@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = "1.0.93"
 axum = "0.7.9"
 backon = "1.2.0"
-clap = { version = "4.5.20", features = ["derive"] }
+clap = { version = "4.5.21", features = ["derive"] }
 clickhouse = "0.13.1"
 env_logger = "0.11.5"
 itertools = "0.13.0"
