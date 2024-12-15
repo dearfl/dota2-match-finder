@@ -1,5 +1,5 @@
 [package]
-name = "dota2"
+name = "dota2-match-finder"
 version = "0.1.0"
 edition = "2021"
 
