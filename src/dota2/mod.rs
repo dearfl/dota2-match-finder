@@ -65,20 +65,28 @@ impl From<full::Match> for MatchDraft {
 }
 
 mod tests {
+    use super::full::MatchHistoryResponse;
+    use super::MatchDraft;
+    #[allow(dead_code)]
+    fn parse_file(file: &str) -> Vec<MatchDraft> {
+        let content = std::fs::read_to_string(file).expect("Failed to read file");
+        let resp = serde_json::from_str::<MatchHistoryResponse>(&content)
+            .expect("Failed to parse json response");
+        resp.result.matches.iter().map(Into::into).collect()
+    }
 
     #[test]
-    fn test() {
-        use super::full::MatchHistoryResponse;
-        use super::MatchDraft;
+    fn test_1730303804() {
+        parse_file("./tests/1730303804-error.json");
+    }
 
-        let parse = |file: &str| -> Vec<MatchDraft> {
-            let content = std::fs::read_to_string(file).expect("Failed to read file");
-            let resp = serde_json::from_str::<MatchHistoryResponse>(&content)
-                .expect("Failed to parse json response");
-            resp.result.matches.iter().map(Into::into).collect()
-        };
-        parse("./tests/1730303804-error.json");
-        parse("./tests/6742154809-error.json");
-        parse("./tests/6796079312-error.json");
+    #[test]
+    fn test_6742154809() {
+        parse_file("./tests/6742154809-error.json");
+    }
+
+    #[test]
+    fn test_6796079312() {
+        parse_file("./tests/6796079312-error.json");
     }
 }
