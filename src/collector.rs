@@ -50,7 +50,8 @@ impl Collector {
                 .map(Into::into),
         );
 
-        let end = matches.iter().fold(start, |init, mat| {
+        // in case the result is empty, we start the next iteration from start+1
+        let end = matches.iter().fold(start + 1, |init, mat| {
             std::cmp::max(init, mat.match_seq_num + 1)
         });
         let count = matches.len();
