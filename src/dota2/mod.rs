@@ -79,5 +79,6 @@ mod tests {
         };
         parse("./tests/1730303804-error.json");
         parse("./tests/6742154809-error.json");
+        parse("./tests/6796079312-error.json");
     }
 }
