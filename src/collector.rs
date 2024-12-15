@@ -4,10 +4,7 @@ use backon::{ExponentialBuilder, Retryable};
 
 use crate::{
     client::{Client, RequestError},
-    dota2::{
-        full::{Match, MatchHistory},
-        MatchDraft,
-    },
+    dota2::{full::Match, MatchDraft},
 };
 
 #[derive(Debug, Clone)]
@@ -74,7 +71,7 @@ impl Collector {
             return CollectResult::Completed(range, masks);
         }
 
-        if self.cached.end - self.cached.start > self.batch as u64 {
+        if self.cache.len() >= self.batch {
             let range = self.cur.start..self.cur.start;
             let range = std::mem::replace(&mut self.cached, range);
             let masks = Vec::with_capacity(self.batch + 100);
@@ -96,7 +93,7 @@ impl Collector {
             .await;
 
         match result {
-            Ok(MatchHistory { status: _, matches }) => Ok(self.process(&matches)),
+            Ok(history) => Ok(self.process(&history.matches)),
             Err(RequestError::DecodeError(err, content)) => {
                 log::error!("DecodeError: {}", err);
                 log::info!("Saving response to {}-error.json", start);
