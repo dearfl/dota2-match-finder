@@ -4,7 +4,7 @@ use backon::{ExponentialBuilder, Retryable};
 
 use crate::{
     client::{Client, RequestError},
-    dota2::{full::Match, MatchDraft},
+    dota2::{full::MatchHistory, MatchDraft},
 };
 
 #[derive(Debug, Clone)]
@@ -41,7 +41,11 @@ impl Collector {
         }
     }
 
-    fn process(&mut self, matches: &[Match]) -> CollectResult {
+    fn process(&mut self, history: MatchHistory) -> CollectResult {
+        if history.status != 1 {
+            log::warn!("dota2 server issue: {}", history.status_detail);
+        }
+        let matches = history.matches;
         let start = self.cur.start;
         self.cache.extend(
             matches
@@ -94,7 +98,7 @@ impl Collector {
             .await;
 
         match result {
-            Ok(history) => Ok(self.process(&history.matches)),
+            Ok(history) => Ok(self.process(history)),
             Err(RequestError::DecodeError(err, content)) => {
                 log::error!("DecodeError: {}", err);
                 log::info!("Saving response to {}-error.json", start);

@@ -152,8 +152,8 @@ pub struct Match {
 #[serde(deny_unknown_fields)]
 pub struct MatchHistory {
     pub status: u8,
-    #[serde(rename = "statusDetail")]
-    pub status_detail: Option<String>,
+    #[serde(rename = "statusDetail", default)]
+    pub status_detail: String,
     #[serde(default)]
     pub matches: Vec<Match>,
 }
