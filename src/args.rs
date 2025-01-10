@@ -2,9 +2,6 @@ use clap::Parser;
 
 #[derive(Parser)]
 pub struct Args {
-    #[arg(long)]
-    pub proxy: Option<String>,
-
     #[arg(long, default_value = "http://localhost:8123")]
     pub clickhouse_server: String,
     #[arg(long)]

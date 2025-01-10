@@ -1,8 +1,6 @@
 use clickhouse::Row;
+use kez::dota2::get_match_history_by_seq_num::Match;
 use serde::{Deserialize, Serialize};
-
-pub mod full;
-pub mod partial;
 
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Side {
@@ -27,8 +25,8 @@ pub struct MatchDraft {
     pub dire: [u8; 5],
 }
 
-impl From<&full::Match> for MatchDraft {
-    fn from(value: &full::Match) -> Self {
+impl From<&Match> for MatchDraft {
+    fn from(value: &Match) -> Self {
         let match_id = value.match_id;
         let mut radiant = [0; 5];
         let mut dire = [0; 5];
@@ -58,35 +56,8 @@ impl From<&full::Match> for MatchDraft {
     }
 }
 
-impl From<full::Match> for MatchDraft {
-    fn from(value: full::Match) -> Self {
+impl From<Match> for MatchDraft {
+    fn from(value: Match) -> Self {
         Self::from(&value)
-    }
-}
-
-mod tests {
-    use super::full::MatchHistoryResponse;
-    use super::MatchDraft;
-    #[allow(dead_code)]
-    fn parse_file(file: &str) -> Vec<MatchDraft> {
-        let content = std::fs::read_to_string(file).expect("Failed to read file");
-        let resp = serde_json::from_str::<MatchHistoryResponse>(&content)
-            .expect("Failed to parse json response");
-        resp.result.matches.iter().map(Into::into).collect()
-    }
-
-    #[test]
-    fn test_1730303804() {
-        parse_file("./tests/1730303804-error.json");
-    }
-
-    #[test]
-    fn test_6742154809() {
-        parse_file("./tests/6742154809-error.json");
-    }
-
-    #[test]
-    fn test_6796079312() {
-        parse_file("./tests/6796079312-error.json");
     }
 }

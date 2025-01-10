@@ -2,11 +2,11 @@ use std::{collections::VecDeque, ops::Range, sync::Arc, time::Duration};
 
 use backon::ExponentialBuilder;
 use backon::Retryable;
+use kez::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
 use crate::{
-    client::Client,
     collector::{CollectResult, Collector},
     database::Database,
     dota2::MatchDraft,
@@ -17,6 +17,16 @@ pub struct CollectorState {
     collected: Vec<(u64, u64)>,
 }
 
+pub async fn get_a_recent_match_seq_num(client: &Client) -> kez::Result<u64> {
+    let filter = kez::dota2::get_match_history::MatchHistoryParameter::default();
+    client.get_match_history(filter).await.map(|history| {
+        history
+            .matches
+            .iter()
+            .fold(0, |init, mat| std::cmp::max(init, mat.match_seq_num))
+    })
+}
+
 impl CollectorState {
     pub async fn new(path: &str, client: &Client) -> anyhow::Result<Self> {
         let mut state = std::fs::read_to_string(path)
@@ -24,7 +34,7 @@ impl CollectorState {
             .and_then(|content| serde_json::from_str::<CollectorState>(&content).ok())
             .unwrap_or_default();
         if state.collected.is_empty() {
-            let start = { || async { client.get_a_recent_match_seq_num().await } }
+            let start = { || async { get_a_recent_match_seq_num(client).await } }
                 .retry(ExponentialBuilder::default())
                 .notify(|_, dur| {
                     log::warn!("Retrying match seq num after {}ms.", dur.as_millis());
@@ -92,13 +102,12 @@ pub struct Scheduler {
 impl Scheduler {
     pub async fn new(
         key: &str,
-        proxy: Option<&str>,
         database: Arc<Database>,
         state_path: &str,
         batch: usize,
         interval: Duration,
     ) -> anyhow::Result<Self> {
-        let client = Client::new(key, proxy)?;
+        let client = Client::new(key)?;
 
         let state_path = state_path.to_string();
         let state = CollectorState::new(&state_path, &client).await?;
