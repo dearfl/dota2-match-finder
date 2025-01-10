@@ -1,11 +1,9 @@
 use std::ops::Range;
 
 use backon::{ExponentialBuilder, Retryable};
+use kez::{dota2::get_match_history_by_seq_num::MatchHistoryBySeqNum, Client};
 
-use crate::{
-    client::{Client, RequestError},
-    dota2::{full::MatchHistory, MatchDraft},
-};
+use crate::dota2::MatchDraft;
 
 #[derive(Debug, Clone)]
 pub enum CollectResult {
@@ -41,7 +39,7 @@ impl Collector {
         }
     }
 
-    fn process(&mut self, history: MatchHistory) -> CollectResult {
+    fn process(&mut self, history: MatchHistoryBySeqNum) -> CollectResult {
         if history.status != 1 {
             log::warn!("dota2 server issue: {}", history.status_detail);
         }
@@ -89,9 +87,9 @@ impl Collector {
 
     pub async fn step(&mut self, client: &Client) -> anyhow::Result<CollectResult> {
         let start = self.cur.start;
-        let result = { || async { client.get_match_history_full(start, 100).await } }
+        let result = { || async { client.get_match_history_by_seq_num((start, 100)).await } }
             .retry(ExponentialBuilder::default())
-            .when(|err| matches!(err, RequestError::ConnectionError(_)))
+            .when(|err| matches!(err, kez::Error::ReqwestError(_)))
             .notify(|_, dur| {
                 log::warn!("Retring connection error after {}ms", dur.as_millis());
             })
@@ -99,14 +97,14 @@ impl Collector {
 
         match result {
             Ok(history) => Ok(self.process(history)),
-            Err(RequestError::DecodeError(err, content)) => {
+            Err(kez::Error::DecodeError(err, content)) => {
                 log::error!("DecodeError: {}", err);
                 log::info!("Saving response to {}-error.json", start);
                 let filename = format!("{}-error.json", start);
                 std::fs::write(filename, content)?;
                 Err(err.into())
             }
-            Err(RequestError::ConnectionError(error)) => {
+            Err(kez::Error::ReqwestError(error)) => {
                 log::warn!("ConnectionError({}): {}", start, error.without_url());
                 Ok(CollectResult::Normal)
             }

@@ -1,5 +1,4 @@
 mod args;
-mod client;
 mod collector;
 mod database;
 mod dota2;
@@ -33,15 +32,8 @@ async fn serve(database: Arc<Database>, address: String) -> anyhow::Result<()> {
 
 async fn collect(database: Arc<Database>, args: Args) -> anyhow::Result<()> {
     let interval = Duration::from_millis(args.interval);
-    let mut sche = Scheduler::new(
-        &args.key,
-        args.proxy.as_deref(),
-        database,
-        &args.collected,
-        args.batch,
-        interval,
-    )
-    .await?;
+    let mut sche =
+        Scheduler::new(&args.key, database, &args.collected, args.batch, interval).await?;
 
     sche.run().await
 }
