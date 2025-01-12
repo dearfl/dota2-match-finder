@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use backon::{ExponentialBuilder, Retryable};
-use kez::{dota2::get_match_history_by_seq_num::MatchHistoryBySeqNum, Client};
+use kez::{dota2::Match, Client};
 
 use crate::dota2::MatchDraft;
 
@@ -39,22 +39,18 @@ impl Collector {
         }
     }
 
-    fn process(&mut self, history: MatchHistoryBySeqNum) -> CollectResult {
-        if history.status != 1 {
-            log::warn!("dota2 server issue: {}", history.status_detail);
-        }
-        let matches = history.matches;
+    fn process(&mut self, matches: Vec<Match>) -> CollectResult {
         let start = self.cur.start;
         self.cache.extend(
             matches
                 .iter()
-                .filter(|&mat| self.cur.contains(&mat.match_seq_num))
+                .filter(|&mat| self.cur.contains(&u64::from(mat.match_seq_num)))
                 .map(Into::into),
         );
 
         // in case the result is empty, we start the next iteration from start+1
         let end = matches.iter().fold(start + 1, |init, mat| {
-            std::cmp::max(init, mat.match_seq_num + 1)
+            std::cmp::max(init, u64::from(mat.match_seq_num) + 1)
         });
         let count = matches.len();
         log::debug!("Collected {} matches in [{}, {})", count, start, end);
@@ -87,7 +83,7 @@ impl Collector {
 
     pub async fn step(&mut self, client: &Client) -> anyhow::Result<CollectResult> {
         let start = self.cur.start;
-        let result = { || async { client.get_match_history_by_seq_num((start, 100)).await } }
+        let result = { || async { client.history(start, 100).await } }
             .retry(ExponentialBuilder::default())
             .when(|err| matches!(err, kez::Error::ReqwestError(_)))
             .notify(|_, dur| {
