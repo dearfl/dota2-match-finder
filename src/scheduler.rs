@@ -6,6 +6,7 @@ use kez::Client;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
+use crate::dota2::Progress;
 use crate::{
     collector::{CollectResult, Collector},
     database::Database,
@@ -203,7 +204,7 @@ impl Scheduler {
 
     async fn save(&mut self, range: Range<u64>, masks: Vec<MatchDraft>) -> anyhow::Result<()> {
         log::info!("Saving matches in [{}, {})!", range.start, range.end);
-        { || async { self.database.save_match_masks(&masks).await } }
+        { || async { self.database.save_match_drafts(&masks).await } }
             .retry(ExponentialBuilder::default())
             .notify(|err, dur| {
                 log::warn!("Retrying {} after {}ms.", err, dur.as_millis());
@@ -211,6 +212,11 @@ impl Scheduler {
             .await?;
         self.state.complete(range);
         self.save_state()?;
+        if let Some(&(_, match_seq_num)) = self.state.collected.last() {
+            if let Some(progress) = Progress::new(match_seq_num) {
+                let _ = self.database.save_progress(progress).await;
+            }
+        }
         Ok(())
     }
 

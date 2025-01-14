@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use clickhouse::Row;
 use kez::dota2::{Match, Side};
 use serde::{Deserialize, Serialize};
@@ -7,6 +9,25 @@ pub struct MatchDraft {
     pub match_id: u64,
     pub radiant: [u8; 5],
     pub dire: [u8; 5],
+}
+
+#[derive(Row, Debug, Clone, Serialize, Deserialize)]
+pub struct Progress {
+    pub timestamp: u64,
+    pub match_seq_num: u64,
+}
+
+impl Progress {
+    pub fn new(match_seq_num: u64) -> Option<Self> {
+        let timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        Some(Self {
+            timestamp,
+            match_seq_num,
+        })
+    }
 }
 
 impl From<&Match> for MatchDraft {
