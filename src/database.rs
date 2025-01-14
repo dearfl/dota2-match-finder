@@ -1,7 +1,7 @@
 use clickhouse::{error::Error, Client};
 use itertools::Itertools;
 
-use crate::dota2::MatchDraft;
+use crate::dota2::{MatchDraft, Progress};
 
 pub struct Database {
     database: String,
@@ -47,6 +47,18 @@ impl Database {
             PARTITION BY intDiv(match_id, 10000000)
             PRIMARY KEY match_id;",
             &database, &table,
+        );
+        client.query(&query).execute().await?;
+
+        let query = format!(
+            "CREATE TABLE IF NOT EXISTS {}.{} (
+                timestamp UInt64,
+                match_seq_num UInt64,
+            )
+            ENGINE = MergeTree()
+            ORDER BY timestamp
+            PRIMARY KEY timestamp;",
+            &database, "progress",
         );
         client.query(&query).execute().await?;
 
@@ -97,11 +109,18 @@ impl Database {
         self.client.query(&query).fetch_all().await
     }
 
-    pub async fn save_match_masks(&self, drafts: &[MatchDraft]) -> Result<(), Error> {
+    pub async fn save_match_drafts(&self, drafts: &[MatchDraft]) -> Result<(), Error> {
         let mut insert = self.client.insert(&self.table)?;
         for draft in drafts {
             insert.write(draft).await?;
         }
+        insert.end().await?;
+        Ok(())
+    }
+
+    pub async fn save_progress(&self, progress: Progress) -> Result<(), Error> {
+        let mut insert = self.client.insert("progress")?;
+        insert.write(&progress).await?;
         insert.end().await?;
         Ok(())
     }
