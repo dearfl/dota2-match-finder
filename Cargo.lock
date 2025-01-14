@@ -339,6 +339,7 @@ dependencies = [
  "itertools",
  "kez",
  "log",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",
