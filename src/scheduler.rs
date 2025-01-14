@@ -107,7 +107,11 @@ impl Scheduler {
         batch: usize,
         interval: Duration,
     ) -> anyhow::Result<Self> {
-        let client = Client::new(key)?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .connect_timeout(Duration::from_secs(30))
+            .build()?;
+        let client = Client::with_client(client, key);
 
         let state_path = state_path.to_string();
         let state = CollectorState::new(&state_path, &client).await?;
