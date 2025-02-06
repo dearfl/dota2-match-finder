@@ -39,15 +39,16 @@ impl From<&Match> for MatchDraft {
         let mut didx = 0;
         value.players.iter().for_each(|player| {
             let (side, _) = player.slot;
+            let (hero_id, _facet) = player.hero.into();
             // ideally there should be exactly 5 randiant and 5 dire
             // however we live in a bizarre world
             match side {
                 Side::Radiant if ridx < 5 => {
-                    radiant[ridx] = u8::from(player.hero.0);
+                    radiant[ridx] = hero_id;
                     ridx += 1;
                 }
                 Side::Dire if didx < 5 => {
-                    dire[didx] = u8::from(player.hero.0);
+                    dire[didx] = hero_id;
                     didx += 1;
                 }
                 _ => log::warn!("problematic match {}", match_id),
