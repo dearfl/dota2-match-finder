@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use backon::{ExponentialBuilder, Retryable};
-use kez::{dota2::Match, Client};
+use kez::{Client, dota2::Match};
 
 use crate::dota2::MatchDraft;
 

@@ -7,13 +7,13 @@ mod service;
 
 use std::{sync::Arc, time::Duration};
 
-use axum::{routing::post, Router};
+use axum::{Router, routing::post};
 use clap::Parser;
 
 use args::Args;
 use database::Database;
 use scheduler::Scheduler;
-use service::{find_matches, AppState};
+use service::{AppState, find_matches};
 
 async fn serve(database: Arc<Database>, address: String) -> anyhow::Result<()> {
     let state = AppState::new(database);
