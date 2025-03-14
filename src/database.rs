@@ -1,4 +1,4 @@
-use clickhouse::{Client, error::Error};
+use clickhouse::{error::Error, Client};
 use itertools::Itertools;
 
 use crate::dota2::{MatchDraft, Progress};
