@@ -21,7 +21,7 @@ struct Collect {
 
 impl Collect {
     async fn collect(self, mut index: u64) -> anyhow::Result<()> {
-        let interval = Duration::from_millis(self.interval);
+        let mut interval = Duration::from_millis(self.interval);
         let mut base = Instant::now();
         loop {
             // since we don't care about exact meaning of fields right now, we just use
@@ -39,6 +39,7 @@ impl Collect {
                         std::cmp::max(init, mat.match_seq_num + 1)
                     });
                     self.tx.send(result.matches).await?;
+                    interval = std::cmp::max(interval * 9 / 10, Duration::from_secs(1));
                 }
                 Err(kez::Error::DecodeError(err, content)) => {
                     // this means the format have been updated, we probably want to exit and update
@@ -50,13 +51,18 @@ impl Collect {
                 Err(kez::Error::OtherResponse(StatusCode::FORBIDDEN)) => {
                     anyhow::bail!("Invalid API_KEY");
                 }
+                Err(kez::Error::OtherResponse(StatusCode::INTERNAL_SERVER_ERROR)) => {
+                    log::warn!("Internal server error!");
+                    interval = std::cmp::min(interval * 5, Duration::from_secs(60));
+                }
                 Err(err) => {
                     // network errors, we could probably try again.
                     log::warn!("{}", err);
+                    interval = std::cmp::min(interval * 2, Duration::from_secs(10));
                 }
             };
 
-            // sleep for a fixed period of time
+            // rate limit
             tokio::time::sleep_until(base + interval).await;
             base = Instant::now();
         }
